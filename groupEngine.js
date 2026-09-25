@@ -2,19 +2,26 @@
 //
 // 约束：
 // - 无 gi / 无 Shell 依赖，GJS (ESM) 与 Node 可共用同一文件。
-// - 引擎内没有任何应用名分支；具体应用只允许出现在 rules (titlePrefixRules /
-//   groups) 里，且默认 rules.json 为空。
-// - 分组键优先级：hints[desktop-entry] > appId > 归一化 app_name(非匿名)
-//   > 标题前缀规则(用户配置) > 标题前缀启发式(内置，可全局开关)
+// - 引擎内没有任何应用名分支；具体应用只允许出现在 rules 里，且默认 rules.json 为空。
+// - 分组键优先级：blockRules(黑名单 veto) > sourceRules(白名单强制合并)
+//   > hints[desktop-entry] > appId > 归一化 app_name(非匿名)
+//   > 标题前缀规则(可叠加 bodyPattern/urgency) > 标题前缀启发式(内置，可全局开关)
 //   > 兜底。
 // - 默认 mode = stack（原生堆叠，不丢消息）；replace 仅当 rules.groups 里
 //   对该 groupKey 显式声明才生效；启发式组永远 stack。
 //
+// 性能约定：
+// - 扩展层在加载规则时调 compileRules() 一次性 校验+审计+预编译，
+//   热路径 computeGroup() 只复用预编译的 rule.re / rule.bodyRe（stateless，
+//   无 /g 标志，可安全复用）。直接传未编译规则也能工作（逐条 try 编译兜底），
+//   供 node 单测与外部调用方使用。
+//
 // mergeable 规则（Q1 合并的安全门，扩展层必须遵守）：
 // 1. 解析不到 App 且 app_name 有辨识度（非匿名表）：按归一化 app_name 合并。
-// 2. 匿名来源：命中用户规则或内置启发式才合并（mergeable=true）；
+// 2. 匿名来源：命中用户规则(sourceRules/titlePrefixRules)或内置启发式才合并；
 //    否则 mergeable=false，扩展永不合并，各自走原生 per-pid Source。
-// 3. 误合并判定示例：两个不同匿名发送者标题都是 "Error: ..." 时，
+// 3. blockRules 命中即 veto：mergeable=false，无论来源是否有辨识度。
+// 4. 误合并判定示例：两个不同匿名发送者标题都是 "Error: ..." 时，
 //    "error" 在通用词停表里，启发式拒绝，双方都进 fallback 且 mergeable=false，
 //    原生按 pid 隔离展示——不会合到一起（见单测）。
 
@@ -85,6 +92,26 @@ export function humanizeGroupKey(groupKey) {
 }
 
 /**
+ * urgency 归一化：0/1/2 或 'low'/'normal'/'critical' -> 0/1/2；其余 -> null。
+ * @param {number|string|null|undefined} v
+ * @returns {number|null}
+ */
+export function normalizeUrgency(v) {
+    if (v === 0 || v === 1 || v === 2)
+        return v;
+    if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        if (s === 'low')
+            return 0;
+        if (s === 'normal')
+            return 1;
+        if (s === 'critical')
+            return 2;
+    }
+    return null;
+}
+
+/**
  * @typedef {object} NotifyInput
  * @property {string} [appName]      FDO Notify 第一个参数
  * @property {string} [desktopEntry] hints['desktop-entry']（unpacked 后）
@@ -92,25 +119,55 @@ export function humanizeGroupKey(groupKey) {
  * @property {string} [sender]       D-Bus 发送者（如 :1.151，仅兜底参考）
  * @property {number} [senderPid]    x-shell-sender-pid / sender-pid
  * @property {string} [title]        通知标题（仅用于标题前缀规则/启发式匹配）
+ * @property {string} [body]         通知正文（仅用于规则的 bodyPattern 匹配；扩展层永不记录）
+ * @property {number|string} [urgency] 0/1/2 或 low/normal/critical（仅用于规则的 urgency 过滤）
  *
  * @typedef {object} Rules
- * @property {Array<{pattern: string, group: string}>} [titlePrefixRules]
- * @property {Record<string, {mode?: 'stack'|'replace', limit?: number, displayName?: string, ttlSec?: number, ignoreReplaces?: boolean}>} [groups]
+ * @property {Array<{pattern: string, group: string, bodyPattern?: string, urgency?: number|string}>} [titlePrefixRules]
+ * @property {Array<{appName?: string, desktopEntry?: string, appId?: string, group: string}>} [sourceRules]
+ *   白名单：归一化精确匹配（多字段 AND），命中即强制合并到指定组（匿名来源也可）。
+ * @property {Array<{appName?: string, desktopEntry?: string, appId?: string, titlePattern?: string}>} [blockRules]
+ *   黑名单：命中即 mergeable=false，永不合并，走原生 per-pid。优先级最高。
+ * @property {Record<string, {mode?: 'stack'|'replace', limit?: number, displayName?: string, ttlSec?: number, ignoreReplaces?: boolean, iconName?: string, showCount?: boolean, collapseWindowSec?: number}>} [groups]
  * @property {boolean} [heuristicTitlePrefix] 内置启发式总开关，默认 true
  *
  * @typedef {object} GroupResult
  * @property {string} groupKey
- * @property {string} derivedFrom  'desktop-entry' | 'app-id' | 'app-name' | 'title-rule' | 'heur-rule' | 'fallback'
+ * @property {string} derivedFrom  'blocked' | 'source-rule' | 'desktop-entry' | 'app-id'
+ *   | 'app-name' | 'title-rule' | 'heur-rule' | 'fallback'
  * @property {object|null} matchedRule 命中的标题规则，未命中为 null
  * @property {boolean} isFallback
  * @property {boolean} mergeable   该组是否允许落入同一共享 Source
  * @property {'stack'|'replace'} mode  默认 stack；replace 仅显式配置；启发式组恒为 stack
  * @property {number} limit 每组上限，默认 NATIVE_SOURCE_LIMIT(10，原生值)
- * @property {string|null} displayName 规则 displayName，直通给组头显示
+ * @property {string|null} displayName 规则 displayName，直通给组头显示（支持 {count} 占位）
  * @property {number} ttlSec 组内存活秒数，0=关闭；仅 rules.groups 显式配置
  * @property {boolean} ignoreReplaces 是否剥离发送方 replaces_id（每事件强制新卡）；
  *   仅 rules.groups 显式 true；默认 false（尊重发送方原位更新语义）
+ * @property {string|null} iconName 规则 iconName（主题图标名），未配置为 null（原生图标回退）
+ * @property {boolean} showCount 组头是否显示组内计数（displayName 无 {count} 时追加 " (N)"）
+ * @property {number} collapseWindowSec 时间窗口折叠：窗口内同组新卡顶替上一张（先加后删）。
+ *   会丢窗口内的旧卡，仅显式配置 >0 生效；默认 0=关闭
  */
+
+function safeCompile(pattern) {
+    try {
+        return new RegExp(pattern);
+    } catch {
+        return null;
+    }
+}
+
+// 规则里声明的 id 字段全部相等（AND）才算命中；调用方保证至少声明一个字段。
+function matchIds(rule, ids) {
+    if (rule.appName != null && rule.appName !== ids.appName)
+        return false;
+    if (rule.desktopEntry != null && rule.desktopEntry !== ids.desktopEntry)
+        return false;
+    if (rule.appId != null && rule.appId !== ids.appId)
+        return false;
+    return true;
+}
 
 /**
  * 计算分组。
@@ -120,32 +177,62 @@ export function humanizeGroupKey(groupKey) {
  */
 export function computeGroup(input, rules = {}) {
     const titlePrefixRules = rules.titlePrefixRules ?? [];
+    const sourceRules = rules.sourceRules ?? [];
+    const blockRules = rules.blockRules ?? [];
     const groups = rules.groups ?? {};
 
     const desktopEntry = normalizeName(input.desktopEntry);
+    const appId = normalizeName(input.appId);
+    const appName = normalizeName(input.appName);
+    const title = String(input.title ?? '');
+    const body = String(input.body ?? '');
+    const urgency = normalizeUrgency(input.urgency);
+    const ids = { appName, desktopEntry, appId };
+
+    // 黑名单 veto（最高优先）：命中即不可合并，走原生 per-pid 隔离。
+    for (const rule of blockRules) {
+        if (rule.titleRe) {
+            if (!rule.titleRe.test(title))
+                continue;
+            // titlePattern 单独成规则，或与 id 字段 AND
+            if ((rule.appName != null || rule.desktopEntry != null || rule.appId != null) &&
+                !matchIds(rule, ids))
+                continue;
+        } else if (!matchIds(rule, ids)) {
+            continue;
+        }
+        const name = desktopEntry || appId || appName || 'anonymous';
+        return finish(`fallback:${name}`, 'blocked', null, false, groups, false);
+    }
+
+    // 白名单强制合并：显式规则优先于自动 identity 链（可把多个来源并进一组）。
+    for (const rule of sourceRules) {
+        if (matchIds(rule, ids))
+            return finish(`app:${rule.group}`, 'source-rule', null, true, groups, false);
+    }
+
     if (desktopEntry)
         return finish(`app:${desktopEntry}`, 'desktop-entry', null, true, groups, false);
 
-    const appId = normalizeName(input.appId);
     if (appId)
         return finish(`app:${appId}`, 'app-id', null, true, groups, false);
 
-    const appName = normalizeName(input.appName);
     const isAnonymous = !appName || ANONYMOUS_APP_NAMES.includes(appName);
     if (!isAnonymous)
         return finish(`app:${appName}`, 'app-name', null, true, groups, false);
 
-    // 匿名来源：先查用户标题前缀规则表。
-    const title = String(input.title ?? '');
+    // 匿名来源：先查用户标题前缀规则表（可叠加 bodyPattern / urgency 过滤）。
     for (const rule of titlePrefixRules) {
-        let re;
-        try {
-            re = new RegExp(rule.pattern);
-        } catch {
+        const re = rule.re ?? safeCompile(rule.pattern);
+        if (!re)
             continue; // 非法正则直接跳过，不炸整条通知
-        }
-        if (re.test(title))
-            return finish(`app:${normalizeName(rule.group)}`, 'title-rule', rule, true, groups, false);
+        if (!re.test(title))
+            continue;
+        if (rule.bodyRe && !rule.bodyRe.test(body))
+            continue;
+        if (rule.urgency != null && rule.urgency !== urgency)
+            continue;
+        return finish(`app:${normalizeName(rule.group)}`, 'title-rule', rule, true, groups, false);
     }
 
     // 内置启发式（可全局关闭；产生的组恒为 stack）。
@@ -214,6 +301,31 @@ export const RULE_AUDIT_BUDGET_MS = 50;
 const NESTED_QUANTIFIER_RE = /(\([^()]*[+*][^()]*\)[+*?]|\{[^}]*\}[+*?])/;
 const AUDIT_PROBES = ['a'.repeat(22) + '!', ' '.repeat(22) + '!'];
 
+// 单 pattern 审计：通过返回预编译 RegExp，被拒返回原因串。
+function auditPattern(pattern) {
+    if (typeof pattern !== 'string')
+        return { re: null, reason: 'not-a-string' };
+    let re;
+    try {
+        re = new RegExp(pattern);
+    } catch {
+        return { re: null, reason: 'compile-error' };
+    }
+    if (NESTED_QUANTIFIER_RE.test(pattern))
+        return { re: null, reason: 'risky-nested-quantifier' };
+    const t0 = Date.now();
+    try {
+        for (const probe of AUDIT_PROBES)
+            re.test(probe);
+    } catch {
+        return { re: null, reason: 'probe-error' };
+    }
+    const cost = Date.now() - t0;
+    if (cost > RULE_AUDIT_BUDGET_MS)
+        return { re: null, reason: `slow-probe(${cost}ms)` };
+    return { re, reason: null };
+}
+
 /**
  * @param {Array} titlePrefixRules
  * @returns {{safe: Array, rejected: Array<{pattern: string, group: string, reason: string}>}}
@@ -224,38 +336,218 @@ export function auditTitleRules(titlePrefixRules) {
     if (!Array.isArray(titlePrefixRules))
         return { safe, rejected };
     for (const rule of titlePrefixRules) {
-        const pattern = rule && rule.pattern;
-        if (typeof pattern !== 'string') {
-            rejected.push({ pattern: String(pattern), group: rule && rule.group, reason: 'not-a-string' });
-            continue;
-        }
-        let re;
-        try {
-            re = new RegExp(pattern);
-        } catch {
-            rejected.push({ pattern, group: rule.group, reason: 'compile-error' });
-            continue;
-        }
-        if (NESTED_QUANTIFIER_RE.test(pattern)) {
-            rejected.push({ pattern, group: rule.group, reason: 'risky-nested-quantifier' });
-            continue;
-        }
-        const t0 = Date.now();
-        try {
-            for (const probe of AUDIT_PROBES)
-                re.test(probe);
-        } catch {
-            rejected.push({ pattern, group: rule.group, reason: 'probe-error' });
-            continue;
-        }
-        const cost = Date.now() - t0;
-        if (cost > RULE_AUDIT_BUDGET_MS) {
-            rejected.push({ pattern, group: rule.group, reason: `slow-probe(${cost}ms)` });
-            continue;
-        }
-        safe.push(rule);
+        const { re, reason } = auditPattern(rule && rule.pattern);
+        if (reason)
+            rejected.push({ pattern: String(rule && rule.pattern), group: rule && rule.group, reason });
+        else
+            safe.push(rule);
     }
     return { safe, rejected };
+}
+
+/**
+ * 规则编译+校验（加载时一次性；扩展层与 prefs 共用同一入口）。
+ * - 所有 pattern 经 ReDoS 审计并预编译，危险/非法直接拒载不进热路径；
+ * - schema 错误（字段类型错、缺必填）逐条记入 errors，该条目被丢弃，
+ *   其余条目照常生效（粗粒度回滚由调用方决定：JSON 解析失败时整体沿用旧规则）；
+ * - 返回的 rules 可直接传给 computeGroup 热路径（预编译 re 复用，零 per-notify 编译）。
+ * @param {object} raw JSON.parse 后的原始规则
+ * @returns {{rules: Rules, errors: Array<{where: string, reason: string}>,
+ *   rejected: Array<{where: string, pattern: string, reason: string}>}}
+ */
+export function compileRules(raw = {}) {
+    const errors = [];
+    const rejected = [];
+    const out = {
+        titlePrefixRules: [],
+        sourceRules: [],
+        blockRules: [],
+        groups: {},
+        heuristicTitlePrefix: raw && raw.heuristicTitlePrefix !== false,
+        debug: !!(raw && raw.debug === true),
+    };
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        errors.push({ where: 'root', reason: 'not-an-object' });
+        return { rules: out, errors, rejected };
+    }
+
+    // ---- titlePrefixRules：pattern 必填 + bodyPattern/urgency 可选 ----
+    if (raw.titlePrefixRules != null) {
+        if (!Array.isArray(raw.titlePrefixRules)) {
+            errors.push({ where: 'titlePrefixRules', reason: 'not-an-array' });
+        } else {
+            raw.titlePrefixRules.forEach((r, i) => {
+                const where = `titlePrefixRules[${i}]`;
+                if (!r || typeof r !== 'object') {
+                    errors.push({ where, reason: 'not-an-object' });
+                    return;
+                }
+                const { re, reason } = auditPattern(r.pattern);
+                if (reason) {
+                    rejected.push({ where, pattern: String(r.pattern), reason });
+                    return;
+                }
+                if (typeof r.group !== 'string' || !r.group.trim()) {
+                    errors.push({ where, reason: 'group-missing' });
+                    return;
+                }
+                let bodyRe = null;
+                if (r.bodyPattern != null) {
+                    const b = auditPattern(r.bodyPattern);
+                    if (b.reason) {
+                        rejected.push({ where: `${where}.bodyPattern`, pattern: String(r.bodyPattern), reason: b.reason });
+                        return;
+                    }
+                    bodyRe = b.re;
+                }
+                let urgency = null;
+                if (r.urgency != null) {
+                    urgency = normalizeUrgency(r.urgency);
+                    if (urgency == null) {
+                        errors.push({ where: `${where}.urgency`, reason: 'bad-urgency(ignored)' });
+                    }
+                }
+                const entry = {
+                    pattern: r.pattern, group: r.group, re, bodyRe, urgency,
+                };
+                if (typeof r.comment === 'string')
+                    entry.comment = r.comment;
+                out.titlePrefixRules.push(entry);
+            });
+        }
+    }
+
+    // ---- sourceRules（白名单）：至少一个 id 字段 + group ----
+    if (raw.sourceRules != null) {
+        if (!Array.isArray(raw.sourceRules)) {
+            errors.push({ where: 'sourceRules', reason: 'not-an-array' });
+        } else {
+            raw.sourceRules.forEach((r, i) => {
+                const where = `sourceRules[${i}]`;
+                const entry = compileIdRule(r, where, errors);
+                if (!entry)
+                    return;
+                if (typeof r.group !== 'string' || !r.group.trim()) {
+                    errors.push({ where, reason: 'group-missing' });
+                    return;
+                }
+                entry.group = normalizeName(r.group);
+                out.sourceRules.push(entry);
+            });
+        }
+    }
+
+    // ---- blockRules（黑名单）：至少一个 id 字段或 titlePattern ----
+    if (raw.blockRules != null) {
+        if (!Array.isArray(raw.blockRules)) {
+            errors.push({ where: 'blockRules', reason: 'not-an-array' });
+        } else {
+            raw.blockRules.forEach((r, i) => {
+                const where = `blockRules[${i}]`;
+                const entry = compileIdRule(r, where, errors);
+                if (!entry && !(r && typeof r.titlePattern === 'string')) {
+                    if (!errors.some(e => e.where === where))
+                        errors.push({ where, reason: 'no-match-field' });
+                    return;
+                }
+                const rec = entry ?? {};
+                if (r && r.titlePattern != null) {
+                    const t = auditPattern(r.titlePattern);
+                    if (t.reason) {
+                        rejected.push({ where: `${where}.titlePattern`, pattern: String(r.titlePattern), reason: t.reason });
+                        return;
+                    }
+                    rec.titlePattern = r.titlePattern;
+                    rec.titleRe = t.re;
+                }
+                if (!rec.appName && !rec.desktopEntry && !rec.appId && !rec.titleRe) {
+                    errors.push({ where, reason: 'no-match-field' });
+                    return;
+                }
+                out.blockRules.push(rec);
+            });
+        }
+    }
+
+    // ---- groups：逐字段类型校验，非法字段丢弃回默认 ----
+    if (raw.groups != null) {
+        if (typeof raw.groups !== 'object' || Array.isArray(raw.groups)) {
+            errors.push({ where: 'groups', reason: 'not-an-object' });
+        } else {
+            for (const [key, cfg] of Object.entries(raw.groups)) {
+                if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+                    errors.push({ where: `groups.${key}`, reason: 'not-an-object' });
+                    continue;
+                }
+                out.groups[key] = checkGroupCfg(key, cfg, errors);
+            }
+        }
+    }
+
+    return { rules: out, errors, rejected };
+}
+
+// sourceRules/blockRules 共用：提取并归一化 id 匹配字段；全缺返回 null。
+function compileIdRule(r, where, errors) {
+    if (!r || typeof r !== 'object') {
+        errors.push({ where, reason: 'not-an-object' });
+        return null;
+    }
+    const rec = {};
+    for (const f of ['appName', 'desktopEntry', 'appId']) {
+        if (r[f] == null)
+            continue;
+        if (typeof r[f] !== 'string' || !r[f].trim()) {
+            errors.push({ where: `${where}.${f}`, reason: 'bad-value' });
+            continue;
+        }
+        rec[f] = normalizeName(r[f]);
+    }
+    if (typeof r.comment === 'string')
+        rec.comment = r.comment;
+    if (rec.appName == null && rec.desktopEntry == null && rec.appId == null)
+        return null;
+    return rec;
+}
+
+const GROUP_INT_FIELDS = ['limit', 'ttlSec', 'collapseWindowSec'];
+const GROUP_STR_FIELDS = ['displayName', 'iconName', 'comment'];
+const GROUP_BOOL_FIELDS = ['ignoreReplaces', 'showCount'];
+
+function checkGroupCfg(key, cfg, errors) {
+    const out = {};
+    const where = `groups.${key}`;
+    if (cfg.mode != null) {
+        if (cfg.mode === 'stack' || cfg.mode === 'replace')
+            out.mode = cfg.mode;
+        else
+            errors.push({ where: `${where}.mode`, reason: 'bad-mode(ignored)' });
+    }
+    for (const f of GROUP_INT_FIELDS) {
+        if (cfg[f] == null)
+            continue;
+        if (Number.isInteger(cfg[f]) && cfg[f] >= 0 && (f !== 'limit' || cfg[f] > 0))
+            out[f] = cfg[f];
+        else
+            errors.push({ where: `${where}.${f}`, reason: 'bad-int(ignored)' });
+    }
+    for (const f of GROUP_STR_FIELDS) {
+        if (cfg[f] == null)
+            continue;
+        if (typeof cfg[f] === 'string')
+            out[f] = cfg[f];
+        else
+            errors.push({ where: `${where}.${f}`, reason: 'bad-string(ignored)' });
+    }
+    for (const f of GROUP_BOOL_FIELDS) {
+        if (cfg[f] == null)
+            continue;
+        if (typeof cfg[f] === 'boolean')
+            out[f] = cfg[f];
+        else
+            errors.push({ where: `${where}.${f}`, reason: 'bad-bool(ignored)' });
+    }
+    return out;
 }
 
 function finish(groupKey, derivedFrom, matchedRule, mergeable, groups, forceStack) {
@@ -267,6 +559,10 @@ function finish(groupKey, derivedFrom, matchedRule, mergeable, groups, forceStac
             : NATIVE_SOURCE_LIMIT;
     const ttlSec =
         Number.isInteger(cfg.ttlSec) && cfg.ttlSec > 0 ? cfg.ttlSec : 0;
+    const collapseWindowSec =
+        Number.isInteger(cfg.collapseWindowSec) && cfg.collapseWindowSec > 0
+            ? cfg.collapseWindowSec
+            : 0;
     return {
         ignoreReplaces: cfg.ignoreReplaces === true,
         groupKey,
@@ -278,5 +574,8 @@ function finish(groupKey, derivedFrom, matchedRule, mergeable, groups, forceStac
         limit,
         displayName: typeof cfg.displayName === 'string' ? cfg.displayName : null,
         ttlSec,
+        iconName: typeof cfg.iconName === 'string' ? cfg.iconName : null,
+        showCount: cfg.showCount === true,
+        collapseWindowSec,
     };
 }
