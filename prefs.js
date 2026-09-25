@@ -354,7 +354,14 @@ export default class NotificationGrouperPrefs extends ExtensionPreferences {
         row.add_row(this._entry('pattern（正则，匹配标题）', r.pattern ?? '', t => { r.pattern = t; row.title = t || '(新规则)'; }));
         row.add_row(this._entry('group（目标组名）', r.group ?? '', t => { r.group = t; }));
         row.add_row(this._entry('bodyPattern（可选，匹配正文）', r.bodyPattern ?? '', t => { if (t) r.bodyPattern = t; else delete r.bodyPattern; }));
-        const urgIdx = r.urgency == null ? 0 : URGENCIES.indexOf(String(r.urgency)) > 0 ? URGENCIES.indexOf(String(r.urgency)) : 0;
+        const urgIdx = (() => {
+            const u = r.urgency;
+            if (u == null)
+                return 0;
+            const s = typeof u === 'number' ? ['low', 'normal', 'critical'][u] : String(u);
+            const i = URGENCIES.indexOf(s);
+            return i > 0 ? i : 0;
+        })();
         row.add_row(this._combo('urgency（可选过滤）', URGENCIES, urgIdx, i => {
             if (i === 0) delete r.urgency; else r.urgency = URGENCIES[i];
         }));

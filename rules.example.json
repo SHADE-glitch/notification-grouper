@@ -1,5 +1,5 @@
 {
-  "_note": "示例文件（不被扩展加载）。CodeBuddy / opencode / Trae / Code-Notify 仅为默认示例，只能出现在这里，不能出现在引擎代码分支中。mode 默认 stack；replace 必须显式声明（聊天/邮件类默认不得用 replace，会丢消息）。",
+  "_note": "示例文件（不被扩展加载）。具体应用名只能出现在本文件与个人 rules.json 中，不能进入引擎代码分支。mode 默认 stack；replace/ignoreReplaces/limit/ttlSec/collapseWindowSec 均仅显式声明才生效；启发式组 mode 恒 stack。规则 pattern 全部经 ReDoS 审计，危险形状（嵌套量词等）加载即拒。可通过 prefs（扩展设置）图形编辑，保存前自动校验。",
   "titlePrefixRules": [
     {
       "pattern": "^CodeBuddy",
@@ -7,9 +7,29 @@
       "comment": "CodeBuddy hook 是裸 notify-send，只能靠标题前缀识别"
     },
     {
-      "pattern": "^(opencode|Trae|Qoder)",
-      "group": "self",
-      "comment": "示例：若某来源同样匿名且标题有固定前缀，可映射；有 app_name/desktop-entry 的来源不需要此条"
+      "pattern": "^Build",
+      "group": "build",
+      "bodyPattern": "(成功|失败)",
+      "urgency": "critical",
+      "comment": "示例：可叠加 bodyPattern（匹配正文）与 urgency（low/normal/critical，0/1/2）过滤；标题命中但附加条件不满足则不合并。body 永不写日志"
+    }
+  ],
+  "sourceRules": [
+    {
+      "appName": "notify-send",
+      "desktopEntry": "my-ci-tool",
+      "group": "ci",
+      "comment": "示例：白名单强制合并——多字段归一化精确匹配（AND）。命中即并入指定组（匿名来源也可合并）。单字段亦可用"
+    }
+  ],
+  "blockRules": [
+    {
+      "appName": "secret-tool",
+      "comment": "示例：黑名单——命中即永不合并，走原生 per-pid 隔离，优先级最高"
+    },
+    {
+      "titlePattern": "^Deploy: prod",
+      "comment": "示例：也可只按标题正则拉黑，或与 id 字段叠加（AND）"
     }
   ],
   "groups": {
@@ -21,14 +41,27 @@
     "app:codebuddy": {
       "mode": "stack",
       "limit": 10,
-      "comment": "示例：CodeBuddy 保留堆叠（默认行为，可省略）"
+      "comment": "示例：保留堆叠（默认行为，可省略）"
+    },
+    "app:ci": {
+      "mode": "stack",
+      "collapseWindowSec": 5,
+      "showCount": true,
+      "iconName": "emblem-synchronizing",
+      "comment": "示例：collapseWindowSec=时间窗口折叠（窗口内同组新卡顶替上一张，会丢窗口内旧卡，仅显式开启）；showCount=组头追加计数 (N)；iconName=主题图标名（未配置回退原生首条 appIcon）"
+    },
+    "app:backup": {
+      "mode": "stack",
+      "ttlSec": 3600,
+      "displayName": "备份 ({count})",
+      "comment": "示例：ttlSec=组内卡片存活秒数（0=关闭）；displayName 支持占位 {count}（组头实时计数），不支持占位时可配 showCount"
     },
     "heur:backup": {
       "mode": "stack",
       "limit": 5,
       "ttlSec": 3600,
       "displayName": "备份",
-      "comment": "示例：limit=超限销毁最旧（原生 EXPIRED 语义）；ttlSec=存活秒数（0=关闭）；displayName=组头覆盖。启发式组 mode 恒为 stack，写 replace 也会被强制 stack。"
+      "comment": "示例：启发式组 mode 恒为 stack，写 replace 也会被强制 stack"
     }
   },
   "heuristicTitlePrefix": true,
