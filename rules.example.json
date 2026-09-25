@@ -1,0 +1,36 @@
+{
+  "_note": "示例文件（不被扩展加载）。CodeBuddy / opencode / Trae / Code-Notify 仅为默认示例，只能出现在这里，不能出现在引擎代码分支中。mode 默认 stack；replace 必须显式声明（聊天/邮件类默认不得用 replace，会丢消息）。",
+  "titlePrefixRules": [
+    {
+      "pattern": "^CodeBuddy",
+      "group": "codebuddy",
+      "comment": "CodeBuddy hook 是裸 notify-send，只能靠标题前缀识别"
+    },
+    {
+      "pattern": "^(opencode|Trae|Qoder)",
+      "group": "self",
+      "comment": "示例：若某来源同样匿名且标题有固定前缀，可映射；有 app_name/desktop-entry 的来源不需要此条"
+    }
+  ],
+  "groups": {
+    "app:opencode": {
+      "mode": "stack",
+      "ignoreReplaces": true,
+      "comment": "示例：剥离发送方 replaces_id，每事件强制新卡堆叠（默认关闭；高频更新会刷屏，谨慎开）。只留最新一条则改 mode=replace 并去掉本行"
+    },
+    "app:codebuddy": {
+      "mode": "stack",
+      "limit": 10,
+      "comment": "示例：CodeBuddy 保留堆叠（默认行为，可省略）"
+    },
+    "heur:backup": {
+      "mode": "stack",
+      "limit": 5,
+      "ttlSec": 3600,
+      "displayName": "备份",
+      "comment": "示例：limit=超限销毁最旧（原生 EXPIRED 语义）；ttlSec=存活秒数（0=关闭）；displayName=组头覆盖。启发式组 mode 恒为 stack，写 replace 也会被强制 stack。"
+    }
+  },
+  "heuristicTitlePrefix": true,
+  "debug": false
+}

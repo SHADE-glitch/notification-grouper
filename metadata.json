@@ -1,0 +1,10 @@
+{
+  "uuid": "notification-grouper@local",
+  "name": "Notification Grouper",
+  "description": "Group notifications by source app (generic engine, no per-app branches). Anonymous senders merge only via explicit title-prefix rules.",
+  "shell-version": [
+    "50"
+  ],
+  "version": 1,
+  "url": ""
+}

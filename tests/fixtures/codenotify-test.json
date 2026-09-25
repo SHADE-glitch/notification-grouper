@@ -1,0 +1,28 @@
+{
+  "_provenance": "真实来源：cn test（code-notify 1.13.1 真实发送路径：notify-send --app-name=Code-Notify），dbus-monitor 抓包 2026-09-24。注意：当前 ~/.claude/settings.json 仍指向不存在的 pause-hook.sh 且 cn status 显示 Claude Code DISABLED，因此这只是 code-notify 自身通道的真实载荷，不是 Claude Code 事件触发的真实 hook 通知（待 L2/L3 补）。",
+  "_scrub": "body 已擦除；title 为 cn 自带测试字符串无隐私；sender 地址占位化。",
+  "hop1_app_to_daemon": {
+    "sender": ":1.NNN",
+    "app_name": "Code-Notify",
+    "replaces_id": 0,
+    "app_icon": "",
+    "title": "Code-Notify Test",
+    "body": "",
+    "hints": {
+      "image-path": "dialog-information",
+      "urgency": 1,
+      "sender-pid": 28229
+    },
+    "expire_timeout": -1
+  },
+  "hop2_daemon_to_shell_extra_hints": {
+    "x-shell-sender-pid": 28229,
+    "x-shell-sender": ":1.NNN"
+  },
+  "_engine_input": {
+    "appName": "Code-Notify",
+    "title": "Code-Notify Test",
+    "senderPid": 28229,
+    "sender": ":1.NNN"
+  }
+}

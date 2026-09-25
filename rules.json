@@ -1,0 +1,21 @@
+{
+  "_note": "L3 首版个人规则：仅 CodeBuddy 一条（displayName + stack）。其余来源零规则靠 app_name 自动合并。replace 全不开，上限原生 10。",
+  "titlePrefixRules": [
+    {
+      "pattern": "^CodeBuddy",
+      "group": "codebuddy"
+    }
+  ],
+  "groups": {
+    "app:codebuddy": {
+      "mode": "stack",
+      "displayName": "CodeBuddy"
+    },
+    "app:opencode": {
+      "mode": "stack",
+      "ignoreReplaces": true
+    }
+  },
+  "heuristicTitlePrefix": true,
+  "debug": false
+}
