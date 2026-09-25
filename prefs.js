@@ -122,33 +122,24 @@ export default class NotificationGrouperPrefs extends ExtensionPreferences {
         sw.add(this._switch('调试日志', '每通知记一行日志并附 title（默认关闭：聚合计数行；永不记 body）',
             this._model.debug, v => { this._model.debug = v; }));
 
-        const act = new Adw.PreferencesGroup({ title: '配置' });
-        page.add(act);
-        const saveRow = new Adw.ButtonRow({
-            title: '保存更改到 rules.json',
-            subtitle: '保存前自动校验；扩展 FileMonitor 热加载，无需重启 Shell',
+        const act = new Adw.PreferencesGroup({
+            title: '配置',
+            description: '保存前自动校验（错误弹窗提示、不写盘）；扩展 FileMonitor 热加载，无需重启 Shell',
         });
+        page.add(act);
+        const saveRow = new Adw.ButtonRow({ title: '保存更改到 rules.json' });
         saveRow.connect('activated', () => this._save());
         act.add(saveRow);
 
-        const imp = new Adw.ButtonRow({
-            title: '导入 JSON…',
-            subtitle: '选择文件，校验通过后替换当前配置',
-        });
+        const imp = new Adw.ButtonRow({ title: '导入 JSON…' });
         imp.connect('activated', () => this._importJson());
         act.add(imp);
 
-        const exp = new Adw.ButtonRow({
-            title: '导出当前 rules.json…',
-            subtitle: '把磁盘上的当前配置另存为',
-        });
+        const exp = new Adw.ButtonRow({ title: '导出当前 rules.json…' });
         exp.connect('activated', () => this._exportJson());
         act.add(exp);
 
-        const dir = new Adw.ButtonRow({
-            title: '打开扩展目录',
-            subtitle: this._rulesPath,
-        });
+        const dir = new Adw.ButtonRow({ title: '打开扩展目录' });
         dir.connect('activated', () => {
             try {
                 Gio.AppInfo.launch_default_for_uri(`file://${this.path}`, null);
