@@ -1,11 +1,11 @@
 {
   "uuid": "notification-grouper@local",
   "name": "Notification Grouper",
-  "description": "Group notifications by source app (generic engine, no per-app branches). Anonymous senders merge only via explicit rules.",
+  "description": "Group notifications by the app that sent them. Zero-config; anonymous senders (no stable app identity) stay isolated per process.",
   "shell-version": [
     "50"
   ],
-  "version": 2,
+  "version": 3,
   "url": "",
-  "_note": "shell-version 仅声明 50（本扩展在此版本核对过 FDO 三补丁点与 messageList 组头结构，运行时验证完整）。48/49 的 NotifyAsync/_getSourceForPidAndName/processNotification 源码级兼容，但未运行时验证，不声明。"
+  "_note": "shell-version 仅声明 50（本扩展在此版本核对过 FDO 两个补丁点 NotifyAsync/_getSourceForPidAndName 与原生共享源行为，运行时验证完整）。48/49 源码级兼容但未运行时验证，不声明。"
 }
