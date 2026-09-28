@@ -1,6 +1,6 @@
 {
-  "_provenance": "真实来源：bash ~/.codebuddy/hooks/notify.sh \"CodeBuddy 任务完成\" \"ng-fixture-capture\"（真实 hook 脚本真实参数，非手写 notify-send），dbus-monitor 抓包 2026-09-24。同一 NOTIFY 在总线出现两次（app->daemon->shell），与 ide-notify-sound.py 注释一致。",
-  "_scrub": "body 已擦除；title 为通用测试字符串无隐私；sender 地址占位化；pid 保留（证明每次调用 pid 不同）。",
+  "_provenance": "真实抓包（2026-09-24, dbus-monitor）：一个 IDE hook 脚本通过 notify-send 发出的通知。同一 NOTIFY 在总线出现两次（通知服务进程 -> shell 进程），与服务侧 NotifyAsync 先注入 x-shell-* hints 再转发的实现一致。",
+  "_scrub": "body 已擦除；title 为通用测试字符串无隐私；sender 总线名占位化；pid 保留（证明每次调用 pid 不同）。",
   "hop1_app_to_daemon": {
     "sender": ":1.NNN",
     "app_name": "notify-send",
