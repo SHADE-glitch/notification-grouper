@@ -1,22 +1,22 @@
 // groupEngine 单测（node --test）。fixtures 来自真实抓包。
-// 引擎已瘦身为"零配置只按应用分"：只覆盖 identity 链 + 匿名隔离 + 挂接点自检。
+// 引擎已瘦身为"零配置只按应用分"：只覆盖 identity 链 + 通用名/空名策略 + 挂接点自检。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-    computeGroup, normalizeName, checkAttachPoints, REQUIRED_PATCHES, ANONYMOUS_APP_NAMES,
+    computeGroup, normalizeName, checkAttachPoints, REQUIRED_PATCHES,
 } from '../groupEngine.js';
 
 const load = (n) =>
     JSON.parse(readFileSync(new URL(`./fixtures/${n}`, import.meta.url)));
 
-// 真实 fixture 1：CodeBuddy 真实 hook（匿名裸发送，app_name=notify-send）
-// -> 匿名不可合并，走原生 per-pid 隔离（零配置下不做任何猜测）
-test('codebuddy hook（匿名 notify-send）-> 不可合并，原生隔离', () => {
+// 真实 fixture 1：CodeBuddy 真实 hook（裸 notify-send，app_name=notify-send）
+// -> 通用名照样作为分组键，跨 pid 合并到一个共享源
+test('codebuddy hook（notify-send）-> app:notify-send，可合并', () => {
     const fx = load('codebuddy-hook.json');
     const r = computeGroup(fx._engine_input);
-    assert.equal(r.mergeable, false);
-    assert.equal(r.groupKey, null);
+    assert.equal(r.groupKey, 'app:notify-send');
+    assert.equal(r.mergeable, true);
 });
 
 // 真实 fixture 2：Code-Notify 有 app_name 无 desktop-entry -> 稳定分组，零配置
@@ -48,22 +48,28 @@ test('归一化：大小写与 .desktop 后缀不改变分组键', () => {
     assert.equal(normalizeName(undefined), '');
 });
 
-// 匿名来源：notify-send / node-notifier / 空 -> 一律不可合并
-test('匿名来源一律不可合并', () => {
-    for (const appName of ['notify-send', 'node-notifier', '', '   ']) {
+// 通用名（发送方声明的身份）照样分组；只有真正空 app_name 才隔离
+test('通用名照样分组，空 app_name 才隔离', () => {
+    for (const appName of ['notify-send', 'node-notifier']) {
+        const r = computeGroup({ appName });
+        assert.equal(r.mergeable, true, `appName=${JSON.stringify(appName)}`);
+        assert.equal(r.groupKey, `app:${appName}`);
+    }
+    for (const appName of ['', '   ', undefined]) {
         const r = computeGroup({ appName });
         assert.equal(r.mergeable, false, `appName=${JSON.stringify(appName)}`);
         assert.equal(r.groupKey, null);
     }
-    assert.deepEqual(ANONYMOUS_APP_NAMES, ['notify-send', 'node-notifier', '']);
 });
 
-// 误合并防护：两个不同匿名发送者 -> 各自隔离，不合并
-test('两个不同匿名发送者 -> 各自隔离', () => {
+// 误合并防护：两个不同的通用名 -> 各自成栈，不互相合并
+test('两个不同通用名 -> 各自成栈', () => {
     const a = computeGroup({ appName: 'notify-send' });
-    const b = computeGroup({ appName: '' });
-    assert.equal(a.mergeable, false);
-    assert.equal(b.mergeable, false);
+    const b = computeGroup({ appName: 'node-notifier' });
+    assert.equal(a.groupKey, 'app:notify-send');
+    assert.equal(b.groupKey, 'app:node-notifier');
+    assert.notEqual(a.groupKey, b.groupKey);
+    assert.equal(computeGroup({ appName: '' }).mergeable, false);
 });
 
 test('空输入 -> 不可合并', () => {

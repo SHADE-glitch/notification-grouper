@@ -7,7 +7,7 @@
 //     从入口到 Source 查找之间无 await，整文件无 async——try/finally 暂存安全
 //     （JS 单线程 + D-Bus 同步派发，无重入）。
 //  2. _getSourceForPidAndName 包裹层：消费 _pending。mergeable 时按 groupKey
-//     复用/新建共享 Source；mergeable=false（匿名）一律原生直通。
+//     复用/新建共享 Source；mergeable=false（app_name 为空）一律原生直通。
 //     已解析到 source.app 的走 _getSourceForApp，原生已按 App 成栈，本扩展不碰；
 //     Gtk 路径（GtkNotificationDaemon*）是另一个独立对象与类，不引用不 patch。
 //
@@ -146,7 +146,7 @@ export default class NotificationGrouperExtension extends Extension {
 
         fdo._getSourceForPidAndName = function (sender, pid, appName) {
             const pend = self._pending;
-            // 无暂存或匿名来源：原生直通，按 pid 隔离。
+            // 无暂存或 app_name 为空：原生直通，按 pid 隔离。
             if (!pend || !pend.res.mergeable)
                 return self._orig.getSource.call(this, sender, pid, appName);
             // 防御：暂存 pid 与本次调用 pid 不一致 -> 同步假设被发行版补丁

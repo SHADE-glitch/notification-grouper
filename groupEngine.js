@@ -3,16 +3,14 @@
 // 约束：
 // - 无 gi / 无 Shell 依赖，GJS (ESM) 与 Node 共用同一文件。
 // - 热路径零正则、零文件 IO、零 timer；只有字符串归一化与哈希查表。
-// - 引擎内没有任何具体应用名分支：ANONYMOUS_APP_NAMES 是"通用发送者"识别
-//   （这类名字无法稳定标识来源），不是按应用分组的业务规则。
+// - 引擎内没有任何具体应用名分支：通用名（notify-send / node-notifier）不是
+//   特例，只是发送方自己声明的身份，照样作为分组键。
 //
-// 分组键优先级：desktopEntry > appId > 归一化 app_name（非匿名）。
-// 匿名（notify-send / node-notifier / 空）一律 mergeable=false，扩展层不合并，
+// 分组键优先级：desktopEntry > appId > 归一化 app_name。
+// 发送方声明了什么就按什么分：同一个名字跨 pid 合并到一个共享 Source。
+// 只有 app_name 归一化后为空（发送方未声明任何身份）才 mergeable=false，
 // 交给原生 per-pid Source 隔离。默认恒 stack，上限由原生 addNotification 强制
 // （messageTray.js MAX_NOTIFICATIONS_PER_SOURCE = 10），不丢消息。
-
-// 被视为"匿名发送者"的 app_name：这类名字不能稳定标识来源，不得用于跨 pid 合并。
-export const ANONYMOUS_APP_NAMES = ['notify-send', 'node-notifier', ''];
 
 /**
  * 归一化应用标识：去首尾空白、转小写、去 .desktop 后缀。
@@ -45,7 +43,7 @@ export function computeGroup({ appName, desktopEntry, appId } = {}) {
         return { groupKey: `app:${id}`, mergeable: true };
 
     const name = normalizeName(appName);
-    if (name && !ANONYMOUS_APP_NAMES.includes(name))
+    if (name)
         return { groupKey: `app:${name}`, mergeable: true };
 
     return { groupKey: null, mergeable: false };

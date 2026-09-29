@@ -19,7 +19,7 @@ function bench(label, iters, fn) {
     return { total, perOp };
 }
 
-// 输入混合：40% desktop-entry、40% 具名 app_name、20% 匿名（走原生 per-pid 直通）
+// 输入混合：40% desktop-entry、40% 具名 app_name、20% 通用名/空名（前者合并，后者隔离）
 const inputs = Array.from({ length: 512 }, (_, i) => {
     if (i % 5 < 2)
         return { appName: 'electron-app', desktopEntry: `Tool${i % 16}.desktop` };
