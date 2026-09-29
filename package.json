@@ -1,0 +1,9 @@
+{
+  "name": "notification-grouper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/test-groupEngine.mjs",
+    "bench": "node scripts/bench.mjs"
+  }
+}
