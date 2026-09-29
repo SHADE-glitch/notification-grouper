@@ -1,9 +1,22 @@
+<p align="right"><a href="README.md"><b>English</b></a> | <a href="README.zh-CN.md">简体中文</a></p>
+
 # Notification Grouper
 
 A GNOME Shell extension that folds notifications from the same sending
 application into a single stack, instead of one stack header per process.
 
+![GNOME Shell](https://img.shields.io/badge/GNOME%20Shell-50-blue)
+![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
+[![Repository](https://img.shields.io/badge/repository-GitHub-black?logo=github)](https://github.com/SHADE-glitch/notification-grouper)
+
 GNOME 50. Zero configuration — no settings dialog, no rules file, no config keys.
+
+## About
+
+An **original extension** by **SHADE-glitch** — not a fork, with no upstream
+project to attribute. It was written for GNOME Shell 50 and verified on GNOME
+Shell 50.1 / Ubuntu 26.04. The whole extension is two method wrappers plus one
+pure-function module: no settings surface, no UI of its own, no network.
 
 ## The problem
 
@@ -120,20 +133,31 @@ Upstream renamed something — please open an issue with this line:
 
 ## Install
 
+Requires GNOME Shell 50 on Ubuntu (verified on Ubuntu 26.04 with GNOME Shell
+50.1). No build step and no dependencies beyond `git`.
+
 ```sh
-git clone https://github.com/SHADE-glitch/gnome-notification-grouper.git \
+# 1. clone straight into the extensions directory
+git clone https://github.com/SHADE-glitch/notification-grouper.git \
   ~/.local/share/gnome-shell/extensions/notification-grouper@local
-```
 
-Then enable it with the Extensions app, or:
-
-```sh
+# 2. enable it
 gnome-extensions enable notification-grouper@local
 ```
 
-Logging out and back in is the reliable way to load it. Note that toggling the
-extension off and on does **not** reload edited JavaScript — the shell caches ES
-modules per process, so verifying a code change needs a shell restart.
+You can also enable it from the **Extensions** app.
+
+**Log out and back in** — that is the reliable way to load a freshly cloned
+extension. Toggling it off and on does **not** reload edited JavaScript: the
+shell caches ES modules per process, so verifying a code change needs a shell
+restart.
+
+### Uninstall
+
+```sh
+gnome-extensions disable notification-grouper@local
+rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
+```
 
 ## Development
 
@@ -173,22 +197,15 @@ evidence for it.
   contents; only newly arriving notifications go back to per-pid sources.
 - The extension UUID is `notification-grouper@local`.
 
+## Contributing
+
+Issues and pull requests are welcome. Please keep changes scoped, and run the
+test suite described under [Development](#development) before opening a PR.
+
 ## License
 
 GPL-2.0-or-later. See [LICENSE](LICENSE).
 
 ---
 
-## 中文摘要
-
-按发出应用把通知折叠进同一个堆叠源。GNOME 原生把 FDO 来源按 `pid + app_name`
-缓存，因此每次新进程的 CLI / hook 通知都会在通知中心留下一个独立栈头；本扩展
-把它们并成一个。
-
-只挂 `NotifyAsync` 与 `_getSourceForPidAndName` 两个方法，两个都在才挂，缺任一
-就完全惰性并只记一条告警，不会半挂载。能解析成 `Shell.App` 的来源原生已分组，
-本扩展不碰；分组键就是发送方声明的身份，`notify-send` 这类通用名照样按名字合并
-（一个名字一个栈，`notify-send` 与 `node-notifier` 各自成栈）。只有 `app_name`
-为空（未声明任何身份）才交给原生按 pid 隔离。
-
-零配置、不联网、不写文件、永不记录通知正文。仅声明兼容 GNOME 50。
+完整中文说明见 [README.zh-CN.md](README.zh-CN.md)。
