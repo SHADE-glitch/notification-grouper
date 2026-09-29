@@ -28,11 +28,14 @@ Read this before opening an issue — several of these are deliberate.
 - **Notifications from an app that resolves to a `Shell.App` are left
   completely alone.** Native GNOME already stacks those per app; there is
   nothing to fix and this extension does not touch them.
-- **Anonymous senders are never merged.** `notify-send`, `node-notifier` and
-  an empty `app_name` are treated as "this sender does not identify itself",
-  and the extension refuses to guess. If your tool sends as `notify-send`, it
-  gets *nothing* from this extension — make the sender pass a stable
-  `--app-name` (or a `desktop-entry` hint) and it will group for free.
+- **Senders that declare no name at all are left alone.** The group key is the
+  identity the sender declares, so a generic `app_name` such as `notify-send`
+  or `node-notifier` is grouped under that name — one stack for `notify-send`,
+  a separate one for `node-notifier`. Only a genuinely empty `app_name` counts
+  as "this sender does not identify itself" and is left to native per-pid
+  isolation. The flip side: two unrelated tools that both send as bare
+  `notify-send` will share one stack. Give the sender a distinct `--app-name`
+  (or a `desktop-entry` hint) if you want them kept apart.
 - **No configuration of any kind.** Per-app branches, rule files and title
   patterns were all removed; the engine contains no application name at all.
   Grouping is a pure function of the identity the sender declares.
@@ -70,7 +73,7 @@ First match wins:
 
 1. the `desktop-entry` hint
 2. an application id (reserved for portal/Gtk paths; the FDO path rarely has one)
-3. the normalised `app_name`, if it is not anonymous
+3. the normalised `app_name`, whenever it is non-empty — generic names included
 
 Normalisation is: trim, lowercase, strip a trailing `.desktop`. So `Foo`,
 ` foo.desktop ` and `FOO` all land in the same group.
@@ -184,7 +187,8 @@ GPL-2.0-or-later. See [LICENSE](LICENSE).
 
 只挂 `NotifyAsync` 与 `_getSourceForPidAndName` 两个方法，两个都在才挂，缺任一
 就完全惰性并只记一条告警，不会半挂载。能解析成 `Shell.App` 的来源原生已分组，
-本扩展不碰；`notify-send` 这类匿名发送者一律不猜、不合并——**如果你的工具以
-`notify-send` 发送，本扩展对你无效**，请让发送方带上稳定的 `--app_name`。
+本扩展不碰；分组键就是发送方声明的身份，`notify-send` 这类通用名照样按名字合并
+（一个名字一个栈，`notify-send` 与 `node-notifier` 各自成栈）。只有 `app_name`
+为空（未声明任何身份）才交给原生按 pid 隔离。
 
 零配置、不联网、不写文件、永不记录通知正文。仅声明兼容 GNOME 50。
