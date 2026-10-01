@@ -5,7 +5,7 @@
   "shell-version": [
     "50"
   ],
-  "version": 4,
+  "version": 5,
   "url": "https://github.com/SHADE-glitch/notification-grouper",
   "_note": "shell-version 仅声明 50（本扩展在此版本核对过 FDO 两个补丁点 NotifyAsync/_getSourceForPidAndName 与原生共享源行为，运行时验证完整）。48/49 源码级兼容但未运行时验证，不声明。"
 }
