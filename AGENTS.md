@@ -16,6 +16,24 @@ maintenance fork, published under GPL-2.0-or-later.
   stash in `extension.js` relies on JS single-threaded execution plus synchronous D-Bus
   dispatch, with no `await` between the entry point and the Source lookup. If upstream
   ever makes that path async, the stash must become per-invocation state.
+- **The stash is validated on two fields, and both are required.** `pid` alone cannot
+  detect the dangerous interleaving — the same sender process emitting two notifications
+  with different `app_name` has an identical pid, and would silently merge into the wrong
+  group and rewrite the stack title. `_pending` therefore also records the raw
+  `params[0]`, and `_getSourceForPidAndName` falls through to native when it differs.
+  Native passes the same `appName` variable from `NotifyAsync` to the source lookup
+  without rewriting it, so the comparison is an identity in the normal case and must
+  never fire in the field; a `pending-appname-mismatch` line in the journal means the
+  synchronicity assumption broke.
+- **`_attach()` must stay idempotent.** It calls `_detachPatches()` before capturing
+  `_orig`, so `_orig` doubles as the single "am I currently patched?" flag. Without
+  this, a second `enable()` without a `disable()` captures the wrapper as the original;
+  the following re-enable then produces `wrapper2 -> wrapper1 -> wrapper1`, which
+  reproduced as 504 recursive frames of `extension.js:141` and dropped every
+  notification in that headless run. Never reintroduce a direct `this._orig = {...}`
+  assignment that is not preceded by a detach.
+- **`_detachPatches()` is a no-op when nothing is attached**, so `disable()` may be
+  called twice and never reports "restored 0 patches" after a real restore.
 - **Do not reassign ESModule exports directly.** Patch the daemon *instance*, and
   restore both patches in `disable()`.
 - **Logging discipline**: one line each for enable/attach/disable, never per-notify,
