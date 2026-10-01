@@ -42,6 +42,12 @@ maintenance fork, published under GPL-2.0-or-later.
   the `_shared` cache.
 
 ## Tests
+- **`npm test` only covers `groupEngine.js`.** It cannot execute `extension.js` at all — the
+  wrappers, the enable/disable contract and the `_shared` cache need a real shell. Use
+  **`npm run verify:headless`** (`tests/headless-verify.sh`): it boots a throwaway headless
+  GNOME Shell on a private bus and asserts 12 runtime invariants. It is isolated by design
+  (`dbus-run-session` + `GSETTINGS_BACKEND=memory` + private `XDG_DATA_HOME`) and must stay
+  that way — never point it at the live session or drop the memory backend.
 - **Run `npm test`** after editing `groupEngine.js`. It is `node tests/test-groupEngine.mjs`:
   no dependencies, no build step. `package.json` exists only to name that command; the bare
   `node tests/test-groupEngine.mjs` remains the real gate and must keep working without npm.
