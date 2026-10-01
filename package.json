@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node tests/test-groupEngine.mjs",
-    "bench": "node scripts/bench.mjs"
+    "bench": "node scripts/bench.mjs",
+    "verify:headless": "tests/headless-verify.sh"
   }
 }
