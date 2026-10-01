@@ -56,21 +56,7 @@ export default class NotificationGrouperExtension extends Extension {
 
     disable() {
         this._enabled = false;
-        const o = this._orig;
-        if (o) {
-            try {
-                if (o.fdo && o.notify)
-                    o.fdo.NotifyAsync = o.notify;
-            } catch {
-                /* best effort */
-            }
-            try {
-                if (o.fdo && o.getSource)
-                    o.fdo._getSourceForPidAndName = o.getSource;
-            } catch {
-                /* best effort */
-            }
-        }
+        this._detachPatches();
         for (const [, rec] of this._shared) {
             try {
                 rec.source.disconnect(rec.hid);
@@ -79,12 +65,34 @@ export default class NotificationGrouperExtension extends Extension {
             }
         }
         this._shared.clear();
-        this._orig = null;
         this._pending = null;
         const restored = this._appliedPatches;
         this._appliedPatches = [];
         log(`${LOG_PREFIX} disabled, restored patches: ` +
             `${restored.length > 0 ? restored.join(', ') : '(none were applied)'}`);
+    }
+
+    /**
+     * 还原两处补丁。可安全重复调用（已还原则是 no-op，且不会误报还原了 0 处）。
+     * _orig 只在真正挂上过补丁时被置位，因此它的存在就是"当前是包裹态"的唯一判据。
+     */
+    _detachPatches() {
+        const o = this._orig;
+        if (!o)
+            return;
+        try {
+            if (o.fdo && o.notify)
+                o.fdo.NotifyAsync = o.notify;
+        } catch {
+            /* best effort */
+        }
+        try {
+            if (o.fdo && o.getSource)
+                o.fdo._getSourceForPidAndName = o.getSource;
+        } catch {
+            /* best effort */
+        }
+        this._orig = null;
     }
 
     // ---- 挂接 FDO 实例 ----
@@ -107,6 +115,11 @@ export default class NotificationGrouperExtension extends Extension {
             log(`${LOG_PREFIX} WARNING degraded, staying inert: ${check.warnings.join('; ')}`);
             return;
         }
+
+        // 防重入：enable 未经 disable（_orig 仍指向上一轮的包裹层）时，必须先
+        // 还原再重新取原始方法。否则会把包裹层当作原始方法存起来，disable 只能
+        // 还原到包裹层，永久残留一个引用死实例的包裹。
+        this._detachPatches();
 
         this._orig = {
             fdo,
