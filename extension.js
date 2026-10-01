@@ -2,10 +2,10 @@
 //
 // 机制：只挂接 FDO 实例的两个方法（自降级：缺任一 -> 完全惰性，不半挂载）：
 //  1. NotifyAsync 包裹层：入口读 hints（deepUnpack），computeGroup()（纯函数，
-//     见 groupEngine.js）得 {groupKey, mergeable}，暂存闭包 _pending（携带
-//     senderPid）。50.1 源码核对：NotifyAsync 为同步方法（notificationDaemon.js），
-//     从入口到 Source 查找之间无 await，整文件无 async——try/finally 暂存安全
-//     （JS 单线程 + D-Bus 同步派发，无重入）。
+//     见 groupEngine.js）得 {groupKey, mergeable}，暂存 _pending（携带 senderPid
+//     与原始 app_name 两个一致性校验位）。50.1 源码核对：NotifyAsync 为同步方法
+//     （notificationDaemon.js），从入口到 Source 查找之间无 await，整文件无
+//     async——try/finally 暂存安全（JS 单线程 + D-Bus 同步派发，无重入）。
 //  2. _getSourceForPidAndName 包裹层：消费 _pending。mergeable 时按 groupKey
 //     复用/新建共享 Source；mergeable=false（app_name 为空）一律原生直通。
 //     已解析到 source.app 的走 _getSourceForApp，原生已按 App 成栈，本扩展不碰；
@@ -148,8 +148,15 @@ export default class NotificationGrouperExtension extends Extension {
             });
             // _pending 对所有调用都置位：Shell 认识 replaces_id 时走复用分支
             // （不经过 _getSource，暂存无影响）；Shell 不认识（stale id）则落
-            // else 分支，_getSource 用暂存合并。暂存携带 pid 供一致性校验。
-            self._pending = { res, pid: read('x-shell-sender-pid') };
+            // else 分支，_getSource 用暂存合并。暂存携带 pid 与原始 app_name
+            // 两个一致性校验位——pid 只能发现跨进程错位，发现不了同一进程内以
+            // 不同 app_name 交错发送（pid 相同、守卫放行），那才是会静默并进
+            // 错误分组的情形，所以两个都记。
+            self._pending = {
+                res,
+                pid: read('x-shell-sender-pid'),
+                appName: params[0],
+            };
             try {
                 return self._orig.notify.call(this, params, invocation);
             } finally {
@@ -167,6 +174,15 @@ export default class NotificationGrouperExtension extends Extension {
             if (pend.pid != null && pid != null && pend.pid !== pid) {
                 self._warnOnce('pending-mismatch',
                     `pending 错位: 暂存 pid=${pend.pid} vs 调用 pid=${pid}，按原生直通（同步假设失效，请上报）`);
+                return self._orig.getSource.call(this, sender, pid, appName);
+            }
+            // 防御：暂存的 app_name 与本次调用的不一致 -> 暂存属于另一条通知
+            // （同一发送者进程交错）。此时 groupKey 是按别人的名字算的，必须
+            // 直通，否则会把这条通知并进别人的栈并连带改变栈标题。
+            if (pend.appName !== appName) {
+                self._warnOnce('pending-appname-mismatch',
+                    `pending 错位: 暂存 app_name=${JSON.stringify(pend.appName)} vs 调用 ` +
+                    `${JSON.stringify(appName)}，按原生直通（同步假设失效，请上报）`);
                 return self._orig.getSource.call(this, sender, pid, appName);
             }
             const key = pend.res.groupKey;
