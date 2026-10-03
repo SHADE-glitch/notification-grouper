@@ -11,14 +11,14 @@ application into a single stack, instead of one stack header per process.
 
 GNOME 50. Zero configuration — no settings dialog, no rules file, no config keys.
 
-## About
+## 📖 About
 
 An **original extension** by **SHADE-glitch** — not a fork, with no upstream
 project to attribute. It was written for GNOME Shell 50 and verified on GNOME
 Shell 50.1 / Ubuntu 26.04. The whole extension is two method wrappers plus one
 pure-function module: no settings surface, no UI of its own, no network.
 
-## The problem
+## ❓ The problem
 
 GNOME's Freedesktop.org notification backend caches its sources per
 `pid + app_name`. For a long-lived app that is fine. But a command-line or
@@ -34,7 +34,7 @@ centre, each holding one card.
 This extension makes those share one source, keyed on the application that
 sent them.
 
-## What it does not do
+## 🚫 What it does not do
 
 Read this before opening an issue — several of these are deliberate.
 
@@ -56,7 +56,7 @@ Read this before opening an issue — several of these are deliberate.
   native 10-notifications-per-source cap are all left to GNOME. The extension
   injects no buttons and overrides no headers.
 
-## How it works
+## 🔬 How it works
 
 Two methods are wrapped on the FDO backend instance
 (`Main.notificationDaemon._fdoNotificationDaemon`):
@@ -93,7 +93,7 @@ Normalisation is: trim, lowercase, strip a trailing `.desktop`. So `Foo`,
 
 The hot path is a pure function with no regex, no file IO and no timers.
 
-## Compatibility
+## 🧩 Compatibility
 
 `shell-version` declares `50` only. That is the version the two patch points and
 the resulting behaviour were verified against (GNOME Shell 50.1, Ubuntu 26.04).
@@ -124,14 +124,14 @@ Upstream renamed something — please open an issue with this line:
 [notification-grouper] WARNING degraded, staying inert: ...
 ```
 
-## Privacy
+## 🔒 Privacy
 
 - Notification **bodies are never written to the log**, and there is no
   per-notification logging at all: one line per enable and one per disable.
 - No network access. No files written. No state persisted. The only thing read
   is the sender-declared identity already present in each notification.
 
-## Install
+## 📥 Install
 
 Requires GNOME Shell 50 on Ubuntu (verified on Ubuntu 26.04 with GNOME Shell
 50.1). No build step and no dependencies beyond `git`.
@@ -159,7 +159,7 @@ gnome-extensions disable notification-grouper@local
 rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
 ```
 
-## Development
+## 🛠️ Development
 
 ```
 extension.js       the two wrappers, source cache, enable/disable
@@ -183,7 +183,7 @@ placeholders; sender pids are kept, because "every invocation has a different
 pid" is the premise the whole extension rests on and the fixtures are the
 evidence for it.
 
-## Known limitations
+## ⚠️ Known limitations
 
 - **Clicking one card dismisses the merged stack.** That is native
   `Source.open()` behaviour (`destroyNonResidentNotifications()`); merging
@@ -197,12 +197,12 @@ evidence for it.
   contents; only newly arriving notifications go back to per-pid sources.
 - The extension UUID is `notification-grouper@local`.
 
-## Contributing
+## 🤝 Contributing
 
 Issues and pull requests are welcome. Please keep changes scoped, and run the
-test suite described under [Development](#development) before opening a PR.
+test suite described under [Development](#-development) before opening a PR.
 
-## License
+## ⚖️ License
 
 GPL-2.0-or-later. See [LICENSE](LICENSE).
 

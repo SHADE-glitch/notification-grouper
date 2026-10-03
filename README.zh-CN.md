@@ -10,13 +10,13 @@
 
 GNOME 50。零配置——没有设置界面、没有规则文件、没有配置项。
 
-## 项目说明
+## 📖 项目说明
 
 **SHADE-glitch** 的**原创扩展**，不是分支，没有需要署名的上游项目。为 GNOME Shell
 50 编写，在 GNOME Shell 50.1 / Ubuntu 26.04 上验证。整个扩展就是两个方法包装加一个
 纯函数模块：没有设置界面、没有自己的 UI、不联网。
 
-## 要解决的问题
+## ❓ 要解决的问题
 
 GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长驻应用没问题。
 但命令行或开发工具发一条通知就退出，**每次都是新 pid**，因此每次都是新来源——而且
@@ -27,7 +27,7 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 
 本扩展让它们共用一个来源，键就是发送方声明的身份。
 
-## 它不做什么
+## 🚫 它不做什么
 
 开 issue 前请先读这里——其中几条是有意为之。
 
@@ -43,7 +43,7 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 - **不改 UI。** 图标、标题、横幅、紧急度、点击行为、原生每源 10 条上限，全部交给
   GNOME。本扩展不注入按钮，也不覆盖栈头。
 
-## 工作原理
+## 🔬 工作原理
 
 在 FDO 后端实例（`Main.notificationDaemon._fdoNotificationDaemon`）上包装两个方法：
 
@@ -74,7 +74,7 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 
 热路径是纯函数，无正则、无文件 IO、无定时器。
 
-## 兼容性
+## 🧩 兼容性
 
 `shell-version` 只声明 `50`。这是两个挂载点及其行为被验证过的版本（GNOME Shell
 50.1、Ubuntu 26.04）。48 和 49 看起来源码兼容，但没实际跑过，所以不声明支持。
@@ -101,13 +101,13 @@ journalctl --user -b | grep notification-grouper
 [notification-grouper] WARNING degraded, staying inert: ...
 ```
 
-## 隐私
+## 🔒 隐私
 
 - 通知**正文永不写入日志**，而且完全没有逐条通知的日志：启用一行、禁用一行。
 - 不联网。不写文件。不持久化状态。唯一读取的就是每条通知里本来就有的、发送方声明的
   身份。
 
-## 安装
+## 📥 安装
 
 需要 Ubuntu 上的 GNOME Shell 50（已在 Ubuntu 26.04 + GNOME Shell 50.1 验证）。
 无构建步骤，除 `git` 外无依赖。
@@ -133,7 +133,7 @@ gnome-extensions disable notification-grouper@local
 rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
 ```
 
-## 开发
+## 🛠️ 开发
 
 ```
 extension.js       两个包装、来源缓存、enable/disable
@@ -154,7 +154,7 @@ node scripts/bench.mjs   # 引擎吞吐
 D-Bus 总线名已替换为占位符；发送方 pid 刻意保留，因为"每次调用 pid 都不同"正是整个
 扩展赖以成立的前提，fixture 是这件事的证据。
 
-## 已知限制
+## ⚠️ 已知限制
 
 - **点一张卡片会关掉整个合并栈。** 这是原生 `Source.open()` 的行为
   （`destroyNonResidentNotifications()`）；跨进程合并把它的作用域从一个进程的卡片
@@ -166,11 +166,11 @@ D-Bus 总线名已替换为占位符；发送方 pid 刻意保留，因为"每�
   pid 的来源。
 - 扩展 UUID 是 `notification-grouper@local`。
 
-## 参与贡献
+## 🤝 参与贡献
 
-欢迎 issue 和 pull request。请保持改动聚焦，并在提 PR 前跑一遍[开发](#开发)一节里
+欢迎 issue 和 pull request。请保持改动聚焦，并在提 PR 前跑一遍[开发](#-开发)一节里
 的测试套件。
 
-## 许可证
+## ⚖️ 许可证
 
 GPL-2.0-or-later。见 [LICENSE](LICENSE)。
