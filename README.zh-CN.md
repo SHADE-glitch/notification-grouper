@@ -173,4 +173,4 @@ D-Bus 总线名已替换为占位符；发送方 pid 刻意保留，因为"每�
 
 ## ⚖️ 许可证
 
-GPL-2.0-or-later。见 [LICENSE](LICENSE)。
+GPL-2.0-or-later · `SPDX-License-Identifier: GPL-2.0-or-later`。见 [LICENSE](LICENSE)——该文件是逐字的 FSF 正文，所以 GitHub 自动识别只报 GPL-2.0；以上声明才是实际授予的许可。

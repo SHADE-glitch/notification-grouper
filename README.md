@@ -204,7 +204,7 @@ test suite described under [Development](#-development) before opening a PR.
 
 ## ⚖️ License
 
-GPL-2.0-or-later. See [LICENSE](LICENSE).
+GPL-2.0-or-later · `SPDX-License-Identifier: GPL-2.0-or-later`. See [LICENSE](LICENSE) — it is the verbatim FSF text, which is why GitHub's automatic detector reports plain GPL-2.0; the declaration above is what is actually granted.
 
 ---
 
