@@ -133,7 +133,7 @@ gnome-extensions disable notification-grouper@local
 rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
 ```
 
-## 🛠️ 开发
+## 🔨 开发
 
 ```
 extension.js       两个包装、来源缓存、enable/disable

@@ -159,7 +159,7 @@ gnome-extensions disable notification-grouper@local
 rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
 ```
 
-## 🛠️ Development
+## 🔨 Development
 
 ```
 extension.js       the two wrappers, source cache, enable/disable
