@@ -1,7 +1,8 @@
 # AGENTS.md
 
-Guidance for agents working inside `notification-grouper@local` — a local
-maintenance fork, published under GPL-2.0-or-later.
+Guidance for agents working inside `notification-grouper@local` — an original
+GNOME Shell 50 extension by SHADE-glitch, with no upstream project to
+attribute, published under GPL-2.0-or-later.
 
 ## Critical Rules
 - **`shell-version` is `["50"]` on purpose.** The extension patches two methods on the
@@ -62,7 +63,8 @@ maintenance fork, published under GPL-2.0-or-later.
 - When fixing a bug, add a regression test that **fails against the pre-fix code** first.
 
 ## Docs & Commits
-- `README.md` is the only doc file; keep it in sync with code changes.
+- `README.md` and `README.zh-CN.md` are one document in two languages; keep both
+  in sync with code changes.
 - Commit code first, docs in a separate commit. Commit messages use **Chinese subjects
   with English conventional-commit prefixes** (`fix:` / `perf:` / `test:` / `docs:` / `chore:`).
 - Live logs: `journalctl -f -o cat /usr/bin/gnome-shell | grep -i notification-grouper`
