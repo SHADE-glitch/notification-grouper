@@ -136,9 +136,9 @@ rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
 ## 🔨 开发
 
 ```
-extension.js       两个包装、来源缓存、enable/disable
-groupEngine.js     纯函数：归一化、分组、挂载自检
-tests/             node --test 套件，fixture 抓自真实 D-Bus 流量
+extension.js       两个 daemon 包装、来源缓存、UI 兜底、enable/disable
+groupEngine.js     纯函数：归一化、分组、挂载与兜底点自检
+tests/             node 套件 + headless 运行时 harness
 scripts/bench.mjs  引擎微基准
 ```
 
@@ -146,19 +146,74 @@ scripts/bench.mjs  引擎微基准
 Node 下都能跑，分组逻辑无需真实会话即可测试：
 
 ```sh
-node --test              # 9 个测试
-node scripts/bench.mjs   # 引擎吞吐
+npm test                   # 11 个纯函数用例
+npm run bench              # 引擎吞吐
+npm run verify:headless    # 对一次性 shell 做 12 项运行时断言
+tests/headless-ui-guard.sh <目录> <标签>   # 逼出原生 collapse 缺陷
 ```
+
+`npm test` **只**覆盖 `groupEngine.js`，完全执行不到 `extension.js`。两个 headless
+harness 会起一个私有 GNOME Shell（`dbus-run-session` + `GSETTINGS_BACKEND=memory` +
+独立 `XDG_DATA_HOME`），不会碰你的会话、配置或通知栏。
+`tests/headless-ui-guard.sh` 对两份构建跑同一条断言，要求结果**翻转**——只在新代码上
+亮绿灯的探针什么也证明不了。
+
+harness 里也记下了那些实测才踩得到的坑：GNOME 50 拒绝符号链接的扩展目录（要复制）、
+`--nested` 已被移除、`gdbus` 会把裸 `-1` 参数当选项、`GLib.spawn_async` 返回的是 pid
+而不是子进程句柄。
 
 `tests/fixtures/` 下的 JSON fixture 是用 `dbus-monitor` 从真实通知抓的。正文已清空、
 D-Bus 总线名已替换为占位符；发送方 pid 刻意保留，因为"每次调用 pid 都不同"正是整个
 扩展赖以成立的前提，fixture 是这件事的证据。
 
+## 🩹 对 GNOME 50 通知列表缺陷的兜底
+
+GNOME 50 自己的 `ui/messageList.js` 有一个竞态，会把通知列表**冻住——点什么都没反应**。
+本扩展为此提供两处窄兜底。
+
+为什么一个"分组"扩展要去动 shell 的 UI 代码：分组会把栈做大，而组变大正是让这个**既有
+缺陷**变得可达的条件。原生按 `pid + app_name` 缓存来源，所以多数组只有 1 张卡，走不到
+那条路径；合并把许多单卡组变成少数多卡组，暴露面就从接近零变成偶发。这是本功能的后果，
+所以缓解它属于本扩展的分内事。
+
+缺陷链条（均已核对 GNOME Shell 50.1 的行号）：
+
+1. `_removeNotification` 在 `messageList.js:1161` 读 `item.layout_manager`，但真正删除
+   Map 条目要等到 `:1170` 的动画回调里。于是 `:1161` 一旦抛出，`_notificationToMessage`
+   里就永久留下一条**脏消息**。
+2. 之后 `collapse()` 在 `:992` 遍历到它，`Message.unexpand`（`646`）调用
+   `ease_property('@layout.expansion', …)`。
+3. `_easeAnimatableProperty` 是**普通函数、不是 `async`**（`environment.js:196`），所以
+   那个 `TypeError` 是同步抛出的，`:341` 的 `.catch()` 根本接不到。
+4. `collapse()` 没有 `try/finally`，于是 `_expanded = false`（`:998`）和
+   `_cover.show()`（`:1000`）永不执行。分组永久停在半折叠态，此后每次点击都被 `:1114` 的
+   `if (!this.expanded)` 吞掉——这就是用户看到的"点什么都没反应"。
+
+兜底做法：`Message.unexpand` 在 actor 已无 layout manager 时直接落终态返回（从而让循环
+能把剩下的消息处理完），`NotificationMessageGroup.collapse` 在仍有异常抛出时强制把状态
+落位。
+
+两处兜底与分组**完全独立**：它们通过动态 `import()` 接入，所以某个 GNOME 版本改了
+`messageList.js` 的名字，只会丢兜底，不会丢分组。这是在替上游的 bug 擦屁股——**上游修好
+后请整段删掉**；若你在 journal 里看到 `UI guards degraded`，请提 issue。
+
+### 你应该预期的点击行为（原生决定，不可配置）
+
+- **折叠态里点一张卡不会激活它，只会展开整组。** `messageList.js:1114` 会中止点击事件的
+  继续派发，把它转成一次展开请求。恰好只有 **1** 张卡的组被视同已展开（`:952`），这就是
+  为什么原生那些小组看起来"点了就消失"。合并后的组是多卡组，所以请预期第一下点击只展开、
+  展开后再点那张卡才执行动作。
+- **解析不到应用的发送方，其通知永远不可能点击跳转。** `source.app` 为 null 时
+  `openApp()` 第一行就 return，而本扩展负责的路径恰恰就是 `app` 为 null 的那条。点击是否
+  会拉起什么，由**发送方**有没有提供 `default` action 决定
+  （`notificationDaemon.js:232-241`），任何扩展都无法事后补上。
+- 折叠组里点关闭按钮，关掉的是**整组**（`:1107`）。
+
 ## ⚠️ 已知限制
 
-- **点一张卡片会关掉整个合并栈。** 这是原生 `Source.open()` 的行为
-  （`destroyNonResidentNotifications()`）；跨进程合并把它的作用域从一个进程的卡片
-  扩大到整组。
+- **展开态（或单卡组）点一张卡片会关掉整个合并栈。** 这是原生 `Source.open()` 的行为
+  （`destroyNonResidentNotifications()`）；跨进程合并把它的作用域从一个进程的卡片扩大到
+  整组。为什么折叠组的第一次点击只展开，见上一节"你应该预期的点击行为"。
 - **`desktop-entry` hint 指向不存在的 `.desktop` 文件时，分组键会和栈标题脱钩。**
   分组按 hint，标题按 `app_name`。这是窄场景——真实 GTK 应用会解析成 `App` 走原生
   路径——但两个应用共用这样的 hint 就会落进同一个栈。

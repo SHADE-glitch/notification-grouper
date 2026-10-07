@@ -162,9 +162,9 @@ rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
 ## 🔨 Development
 
 ```
-extension.js       the two wrappers, source cache, enable/disable
-groupEngine.js     pure functions: normalisation, grouping, attach self-check
-tests/             node --test suite, fixtures captured from real D-Bus traffic
+extension.js       the two daemon wrappers, source cache, UI guards, enable/disable
+groupEngine.js     pure functions: normalisation, grouping, attach self-checks
+tests/             node suite + headless runtime harnesses
 scripts/bench.mjs  engine microbenchmark
 ```
 
@@ -173,9 +173,23 @@ same file runs under both GJS and Node and the grouping logic is testable
 without a live session:
 
 ```sh
-node --test              # 9 tests
-node scripts/bench.mjs   # engine throughput
+npm test                   # 11 pure-function cases
+npm run bench              # engine throughput
+npm run verify:headless    # 12 runtime assertions against a throwaway shell
+tests/headless-ui-guard.sh <dir> <label>   # provokes the native collapse fault
 ```
+
+`npm test` covers **only** `groupEngine.js` — it cannot execute `extension.js` at all.
+The two headless harnesses boot a private GNOME Shell (`dbus-run-session`,
+`GSETTINGS_BACKEND=memory`, a private `XDG_DATA_HOME`) so they never touch your session,
+your settings, or your notification tray. `tests/headless-ui-guard.sh` runs an assertion
+against two builds so it must *flip* between them; a probe that merely passes on the new
+code proves nothing.
+
+The harnesses also encode traps that cost real time to discover: GNOME 50 rejects
+symlinked extension directories (copy instead), `--nested` was removed, `gdbus` parses a
+bare `-1` argument as an option, and `GLib.spawn_async` returns a pid rather than a
+subprocess handle.
 
 The JSON fixtures under `tests/fixtures/` were captured with `dbus-monitor` from
 real notifications. Bodies are emptied and D-Bus bus names are replaced with
@@ -183,11 +197,62 @@ placeholders; sender pids are kept, because "every invocation has a different
 pid" is the premise the whole extension rests on and the fixtures are the
 evidence for it.
 
+## 🩹 Workaround for a GNOME 50 notification-list defect
+
+GNOME 50's own `ui/messageList.js` has a race that can leave the notification list
+**frozen — clicking anything does nothing**. This extension ships two narrow guards
+against it.
+
+Why an extension for *grouping* patches shell UI: grouping makes stacks bigger, and a
+bigger group is what makes the pre-existing defect reachable. Native caches one source per
+`pid + app_name`, so most groups held exactly one card and never hit the path. Merging
+converts many one-card groups into a few N-card groups, so the exposure moves from
+near-zero to occasional. That is a consequence of this feature, so mitigating it is this
+extension's business.
+
+The defect, verified against GNOME Shell 50.1 line numbers:
+
+1. `_removeNotification` reads `item.layout_manager` at `messageList.js:1161`, but only
+   deletes its map entry inside the animation callback at `:1170`. A throw at `:1161`
+   therefore leaves a **stale message** in `_notificationToMessage`.
+2. `collapse()` then iterates that stale entry at `:992`, and `Message.unexpand` (`:646`)
+   calls `ease_property('@layout.expansion', …)`.
+3. `_easeAnimatableProperty` is a **plain function, not `async`** (`environment.js:196`),
+   so the `TypeError` is thrown synchronously and the `.catch()` at `:341` never sees it.
+4. `collapse()` has no `try/finally`, so `_expanded = false` (`:998`) and `_cover.show()`
+   (`:1000`) never run. The group is stuck half-collapsed forever, and from then on every
+   click is swallowed by the `if (!this.expanded)` branch at `:1114`.
+
+The guards: `Message.unexpand` lands its end state instead of throwing when the actor has
+no layout manager (which lets the loop finish for the remaining messages), and
+`NotificationMessageGroup.collapse` forces the state to land if anything still throws.
+
+Both guards are **strictly independent of grouping** — reached by dynamic `import()`, so a
+GNOME version that renames `messageList.js` costs you only the guards, never grouping. They
+work around a bug that belongs upstream; **delete them once GNOME fixes it**, and please
+open an issue if you see `UI guards degraded` in the journal.
+
+### Click behaviour to expect (native, not configurable)
+
+- **Clicking a card in a collapsed group does not activate it — it only expands the
+  group.** `messageList.js:1114` stops the click emission and turns it into an
+  expand request. A group of exactly **one** card is treated as already expanded (`:952`),
+  which is why small native groups appeared to "click and dismiss". Merged groups are
+  multi-card, so expect the first click to expand and the click on the revealed card to act.
+- **A notification from a sender that does not resolve to an application can never jump
+  anywhere.** `openApp()` returns immediately when `source.app` is null, and the path this
+  extension handles is precisely the path where it is null. Whether a click launches
+  something is decided by the *sender* offering a `default` action
+  (`notificationDaemon.js:232-241`) — no extension can retrofit it.
+- Clicking a card in a collapsed group's close button closes the **entire group** (`:1107`).
+
 ## ⚠️ Known limitations
 
-- **Clicking one card dismisses the merged stack.** That is native
-  `Source.open()` behaviour (`destroyNonResidentNotifications()`); merging
-  across processes widens its scope from one process's cards to the group's.
+- **Clicking one card dismisses the whole merged stack** once the group is expanded (or
+  when it holds a single card). That is native `Source.open()` behaviour
+  (`destroyNonResidentNotifications()`); merging across processes widens its scope from
+  one process's cards to the group's. See "Click behaviour to expect" above for why the
+  first click on a collapsed multi-card group only expands it.
 - **A `desktop-entry` hint that names a non-existent `.desktop` file decouples
   the group key from the stack title.** The group is keyed on the hint while
   the title comes from `app_name`. Narrow case — real GTK apps resolve to an
