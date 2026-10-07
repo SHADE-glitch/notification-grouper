@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
     computeGroup, normalizeName, checkAttachPoints, REQUIRED_PATCHES,
+    checkUiGuardPoints, REQUIRED_UI_GUARDS,
 } from '../groupEngine.js';
 
 const load = (n) =>
@@ -100,4 +101,42 @@ test('checkAttachPoints：2 补丁齐全则 attach，缺失则 inert', () => {
     const noGet = checkAttachPoints({ ...full, hasGetSource: false });
     assert.equal(noGet.attach, false);
     assert.match(noGet.warnings.join(';'), /_getSourceForPidAndName missing/);
+});
+
+// UI 兜底点自检：与分组补丁相互独立，且默认 fail-safe（信息不全就不挂）
+test('checkUiGuardPoints：4 项齐全才 apply', () => {
+    const full = {
+        moduleLoaded: true, hasMessage: true, hasGroup: true,
+        hasUnexpand: true, hasCollapse: true,
+    };
+    const ok = checkUiGuardPoints(full);
+    assert.equal(ok.apply, true);
+    assert.deepEqual(ok.guards, REQUIRED_UI_GUARDS);
+    assert.deepEqual(REQUIRED_UI_GUARDS,
+        ['Message.unexpand', 'NotificationMessageGroup.collapse']);
+    // 独立性：兜底点绝不能和分组补丁点混为一谈
+    assert.deepEqual(REQUIRED_UI_GUARDS.filter(g => REQUIRED_PATCHES.includes(g)), []);
+});
+
+test('checkUiGuardPoints：任一项缺失 -> 不挂、只警告', () => {
+    const full = {
+        moduleLoaded: true, hasMessage: true, hasGroup: true,
+        hasUnexpand: true, hasCollapse: true,
+    };
+    const cases = [
+        ['moduleLoaded', /messageList module unavailable/],
+        ['hasMessage', /Message class not exported/],
+        ['hasGroup', /NotificationMessageGroup class not exported/],
+        ['hasUnexpand', /unexpand missing/],
+        ['hasCollapse', /collapse missing/],
+    ];
+    for (const [key, re] of cases) {
+        const r = checkUiGuardPoints({ ...full, [key]: false, detail: 'boom' });
+        assert.equal(r.apply, false, `${key}=false must not apply`);
+        assert.equal(r.guards.length, 0, `${key}=false must install nothing`);
+        assert.match(r.warnings.join(';'), re, `${key}=false warning text`);
+    }
+    // 空输入必须走惰性分支，绝不能默认挂载
+    assert.deepEqual(checkUiGuardPoints(), { apply: false, guards: [], warnings: checkUiGuardPoints().warnings });
+    assert.equal(checkUiGuardPoints({}).apply, false);
 });

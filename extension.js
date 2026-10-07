@@ -20,11 +20,21 @@
 // 与原生堆叠源行为一致）。disable 时还原两处补丁、断开每源信号、清空缓存。
 //
 // 日志：默认安静——enable/attach/disable 各一行；无 per-notify 日志，永不记 body。
+//
+// 第三类挂接（与分组无关，独立降级）：GNOME 50 原生 messageList.js 有一个
+// "折叠分组时踩到已销毁 actor"的缺陷，一旦抛出就会把分组永久留在半折叠态，
+// 之后每次点击都被 native 的 if (!this.expanded) 吞掉——用户看到的正是
+// "通知栏卡住、点什么都没反应"。本扩展把多个 pid 并成一个源，客观上把分组
+// 做大，从而放大了这个原生缺陷的触发概率，因此在此提供兜底：
+//   - Message.unexpand()：actor 无 layout manager 时落终态返回，保证
+//     collapse() 的 forEach 能跑完；
+//   - NotificationMessageGroup.collapse()：捕获抛出并强制 _expanded/cover 落位。
+// 取不到 messageList.js 只丢兜底，分组照常；上游修复后本段可整块删除。
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import { computeGroup, checkAttachPoints } from './groupEngine.js';
+import { computeGroup, checkAttachPoints, checkUiGuardPoints } from './groupEngine.js';
 
 const LOG_PREFIX = '[notification-grouper]';
 
@@ -36,6 +46,9 @@ export default class NotificationGrouperExtension extends Extension {
     _pending = null;
     _orig = null;
     _appliedPatches = [];
+    /** UI 兜底的原始方法（仅当成功挂上时非 null，兼作"当前是否已挂"判据） */
+    _origUi = null;
+    _appliedGuards = [];
     _warned = new Set();
 
     enable() {
@@ -43,6 +56,8 @@ export default class NotificationGrouperExtension extends Extension {
         this._shared = new Map();
         this._pending = null;
         this._appliedPatches = [];
+        this._appliedGuards = [];
+        this._origUi = null;
         this._warned = new Set();
         // Main.notificationDaemon 在 main.js 早于 ExtensionManager 创建
         // （notificationDaemon 构造器内同步建 _fdoNotificationDaemon），
@@ -57,6 +72,7 @@ export default class NotificationGrouperExtension extends Extension {
     disable() {
         this._enabled = false;
         this._detachPatches();
+        this._detachUiGuards();
         for (const [, rec] of this._shared) {
             try {
                 rec.source.disconnect(rec.hid);
@@ -67,9 +83,12 @@ export default class NotificationGrouperExtension extends Extension {
         this._shared.clear();
         this._pending = null;
         const restored = this._appliedPatches;
+        const restoredGuards = this._appliedGuards;
         this._appliedPatches = [];
+        this._appliedGuards = [];
         log(`${LOG_PREFIX} disabled, restored patches: ` +
-            `${restored.length > 0 ? restored.join(', ') : '(none were applied)'}`);
+            `${restored.length > 0 ? restored.join(', ') : '(none were applied)'}` +
+            `, guards: ${restoredGuards.length > 0 ? restoredGuards.join(', ') : '(none)'}`);
     }
 
     /**
@@ -93,6 +112,130 @@ export default class NotificationGrouperExtension extends Extension {
             /* best effort */
         }
         this._orig = null;
+    }
+
+    // ---- 原生 messageList 缺陷兜底 ----
+    //
+    // 这不是分组逻辑，而是替 GNOME 50 的 UI 缺陷擦屁股，因此与上面的两个补丁点
+    // 完全独立：拿不到 messageList.js 就只丢兜底，分组照常。
+    //
+    // 缺陷链（均已核对 native 源码行号）：
+    //   _removeNotification  :1152 取 item = message.get_parent()，:1161 立刻用
+    //                          item.layout_manager，而 _notificationToMessage.delete()
+    //                          在动画 onComplete 里（:1170）-> :1161 一抛，脏条目
+    //                          就永久留在 Map 里。
+    //   collapse()           :992 forEach 里对脏条目调 unexpand -> Message.unexpand
+    //                          :646 的 ease_property('@layout.expansion') 需要
+    //                          layout manager，取不到即 TypeError。
+    //   collapse()           :998/:1000 的 _expanded=false / cover.show() 排在那行
+    //                          之后且无 try/finally -> 状态永久停在半折叠，
+    //                          此后每次点击都被 :1114 的 if (!this.expanded) 吞掉，
+    //                          用户看到的是"通知栏卡住、点什么都没反应"。
+
+    /**
+     * 还原 UI 兜底。可安全重复调用；_origUi 非 null 即"当前已挂"的唯一判据。
+     */
+    _detachUiGuards() {
+        const o = this._origUi;
+        if (!o)
+            return;
+        try {
+            o.Message.prototype.unexpand = o.unexpand;
+        } catch {
+            /* best effort */
+        }
+        try {
+            o.Group.prototype.collapse = o.collapse;
+        } catch {
+            /* best effort */
+        }
+        this._origUi = null;
+    }
+
+    /**
+     * 挂 UI 兜底。用动态 import：上游一旦改名/删文件，静态 import 会让整个扩展
+     * 进 ERROR 态、连分组都不再工作，而那比"没有兜底"糟得多。
+     */
+    async _attachUiGuards() {
+        this._detachUiGuards();
+
+        let mod = null;
+        let detail = '';
+        try {
+            mod = await import('resource:///org/gnome/shell/ui/messageList.js');
+        } catch (e) {
+            detail = e && e.message ? e.message : String(e);
+        }
+
+        // 动态导入期间可能已经 disable：此时挂上去就再也无人还原了。
+        if (!this._enabled)
+            return;
+
+        const Message = mod ? mod.Message ?? null : null;
+        const Group = mod ? mod.NotificationMessageGroup ?? null : null;
+        const check = checkUiGuardPoints({
+            moduleLoaded: !!mod,
+            detail,
+            hasMessage: !!Message,
+            hasGroup: !!Group,
+            hasUnexpand: !!(Message && typeof Message.prototype.unexpand === 'function'),
+            hasCollapse: !!(Group && typeof Group.prototype.collapse === 'function'),
+        });
+        if (!check.apply) {
+            this._appliedGuards = [];
+            log(`${LOG_PREFIX} UI guards degraded: ${check.warnings.join('; ')}`);
+            return;
+        }
+
+        this._origUi = {
+            Message,
+            Group,
+            unexpand: Message.prototype.unexpand,
+            collapse: Group.prototype.collapse,
+        };
+
+        const origUnexpand = this._origUi.unexpand;
+        Message.prototype.unexpand = function (animate) {
+            // actor 已从容器摘下时没有 layout manager，动画无从谈起；直接把终态
+            // 落位并返回，让 collapse() 的 forEach 能跑完剩下的消息（否则一条脏
+            // 消息会连带让它后面的消息全部留在展开态）。
+            let hasLayout = false;
+            try {
+                hasLayout = !!this._bodyBin && this._bodyBin.get_layout_manager() !== null;
+            } catch {
+                hasLayout = false;
+            }
+            if (!hasLayout) {
+                try {
+                    this._actionBin?.hide();
+                    this.expanded = false;
+                } catch {
+                    /* actor already disposed */
+                }
+                return;
+            }
+            return origUnexpand.call(this, animate);
+        };
+
+        const origCollapse = this._origUi.collapse;
+        Group.prototype.collapse = async function () {
+            try {
+                return await origCollapse.call(this);
+            } catch (e) {
+                logError(e, `${LOG_PREFIX} NotificationMessageGroup.collapse() threw`);
+                // 只补状态落位，不改语义：半折叠态会让之后每次点击都被吞掉。
+                try {
+                    this._expanded = false;
+                    this.notify('expanded');
+                    this._cover?.show();
+                } catch {
+                    /* group already disposed */
+                }
+            }
+        };
+
+        this._appliedGuards = check.guards;
+        log(`${LOG_PREFIX} UI guards attached: ${this._appliedGuards.join(', ')}`);
     }
 
     // ---- 挂接 FDO 实例 ----
@@ -203,6 +346,12 @@ export default class NotificationGrouperExtension extends Extension {
 
         this._appliedPatches = check.patches;
         log(`${LOG_PREFIX} enabled, attached patches: ${this._appliedPatches.join(', ')}`);
+
+        // 分组已挂上才谈兜底（兜底独立降级，但不会在惰性实例上单独存在）。
+        // 不 await：enable() 必须保持同步，与 _pending 的同步交接假设一致。
+        this._attachUiGuards().catch(e => {
+            logError(e, `${LOG_PREFIX} UI guards attach failed`);
+        });
     }
 
     _warnOnce(key, msg) {

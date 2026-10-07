@@ -55,6 +55,43 @@ export const REQUIRED_PATCHES = [
     '_getSourceForPidAndName',
 ];
 
+// UI 兜底点：修的是 GNOME 原生 messageList.js 的缺陷，与分组机制无关，
+// 因此与 REQUIRED_PATCHES 相互独立 —— 取不到就只丢兜底，绝不拖累分组。
+export const REQUIRED_UI_GUARDS = [
+    'Message.unexpand',
+    'NotificationMessageGroup.collapse',
+];
+
+/**
+ * UI 兜底点自检（纯函数，供 _attachUiGuards 自降级与单测共用）。
+ * @param {object} [info]
+ * @param {boolean} [info.moduleLoaded] messageList.js 是否 import 成功
+ * @param {boolean} [info.hasMessage]
+ * @param {boolean} [info.hasGroup]
+ * @param {boolean} [info.hasUnexpand]
+ * @param {boolean} [info.hasCollapse]
+ * @param {string} [info.detail] 诊断用
+ * @returns {{apply: boolean, warnings: string[], guards: string[]}}
+ */
+export function checkUiGuardPoints(info = {}) {
+    const warnings = [];
+    if (!info.moduleLoaded) {
+        warnings.push(`messageList module unavailable [${info.detail ?? 'unknown'}]`);
+    } else {
+        if (!info.hasMessage)
+            warnings.push('Message class not exported');
+        if (!info.hasGroup)
+            warnings.push('NotificationMessageGroup class not exported');
+        if (!info.hasUnexpand)
+            warnings.push('Message.prototype.unexpand missing');
+        if (!info.hasCollapse)
+            warnings.push('NotificationMessageGroup.prototype.collapse missing');
+    }
+    if (warnings.length > 0)
+        return { apply: false, warnings, guards: [] };
+    return { apply: true, warnings, guards: [...REQUIRED_UI_GUARDS] };
+}
+
 /**
  * 挂接点自检（纯函数，供扩展 enable 自降级与单测共用）。
  * @param {object} [info]
