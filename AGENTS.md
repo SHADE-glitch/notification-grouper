@@ -85,6 +85,10 @@ attribute, published under GPL-2.0-or-later.
 - The suite needs `tests/fixtures/`. Keep fixture provenance free of private toolchain
   paths; the pid evidence is what matters.
 - `groupEngine.js` must stay free of `gi://` and `resource://` imports so Node can load it.
+- **Verification tiers** (the names `L0`/`L1`/`L2` used by `CHANGELOG.md`, defined by what the
+  claim needs, not by the tool): **L0** = `npm test`, no shell required; **L1** =
+  `npm run verify:headless` / `npm run verify:ui-guard`, a throwaway shell on a private bus;
+  **L2** = the real user session, which nothing here can automate.
 - When fixing a bug, add a regression test that **fails against the pre-fix code** first.
 
 ## Docs & Commits
@@ -93,3 +97,21 @@ attribute, published under GPL-2.0-or-later.
 - Commit code first, docs in a separate commit. Commit messages use **Chinese subjects
   with English conventional-commit prefixes** (`fix:` / `perf:` / `test:` / `docs:` / `chore:`).
 - Live logs: `journalctl -f -o cat /usr/bin/gnome-shell | grep -i notification-grouper`
+
+## Recording conventions
+- Behaviour changes land in `CHANGELOG.md` as `D-###` entries. Ids are monotonic and
+  **never reused**, so a gap in the numbering means an entry was deleted — `check:log` treats it
+  as a failure rather than a cleanup.
+- `kind` ∈ `fix` | `taste` | `guard` | `revert`, cut by **who may demand a revert**: dropping it
+  makes a bug → `fix`; dropping it only annoys me → `taste` (it carries zero obligation, and on an
+  upgrade it may be discarded wholesale). A change that is both splits into two entries.
+  A withdrawal is recorded too — a log without reverts reads like a victory list.
+- An entry is an assertion **as of its commit**, not current state. Do not re-verify old entries,
+  and do not hand-copy an aggregate count into the file: `npm run check:log` prints them.
+- Known-but-not-fixed issues do **not** go in `CHANGELOG.md` — they have no commit, because
+  nothing was touched. They live in README § What it does not do and § Known limitations.
+- `Symptom` names the mechanism, never the session: no desktop app names, no notification
+  bodies, no private toolchain paths (same rule as fixture provenance above).
+- Run `npm run check:log` before committing docs. It fails on any commit inside the declared
+  coverage window that touched `extension.js` or `groupEngine.js` without being cited by an
+  entry. Deliberate scope-outs belong outside the window, never inside an ad-hoc skip list.
