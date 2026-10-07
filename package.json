@@ -6,6 +6,7 @@
     "test": "node tests/test-groupEngine.mjs",
     "bench": "node scripts/bench.mjs",
     "verify:headless": "tests/headless-verify.sh",
-    "verify:ui-guard": "tests/headless-ui-guard.sh"
+    "verify:ui-guard": "tests/headless-ui-guard.sh",
+    "check:log": "node tests/check-log.mjs"
   }
 }
