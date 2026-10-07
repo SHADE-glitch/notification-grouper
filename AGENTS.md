@@ -102,11 +102,13 @@ attribute, published under GPL-2.0-or-later.
 - Behaviour changes land in `CHANGELOG.md` as `D-###` entries. Ids are monotonic and
   **never reused**, so a gap in the numbering means an entry was deleted — `check:log` treats it
   as a failure rather than a cleanup.
-- `kind` ∈ `fix` | `perf` | `taste` | `guard` | `revert`, cut by **who may demand a revert**: dropping it
+- `kind` ∈ `fix` | `perf` | `taste` | `guard` | `revert` | `chore`, cut by **who may demand a revert**: dropping it
   makes a bug → `fix`; dropping it only re-introduces measurable degradation → `perf`; dropping it
   only annoys me → `taste` (it carries zero obligation, and on an
   upgrade it may be discarded wholesale). A change that is both splits into two entries.
-  A withdrawal is recorded too — a log without reverts reads like a victory list.
+  A withdrawal is recorded too — a log without reverts reads like a victory list. Cleanup owed
+  nothing either way (dead code, wrong comments, naming) is `chore`; this repo has none yet, but the
+  checker accepts the value so all extension repos share one vocabulary.
 - An entry is an assertion **as of its commit**, not current state. Do not re-verify old entries,
   and do not hand-copy an aggregate count into the file: `npm run check:log` prints them.
 - Known-but-not-fixed issues do **not** go in `CHANGELOG.md` — they have no commit, because
