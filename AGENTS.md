@@ -102,8 +102,9 @@ attribute, published under GPL-2.0-or-later.
 - Behaviour changes land in `CHANGELOG.md` as `D-###` entries. Ids are monotonic and
   **never reused**, so a gap in the numbering means an entry was deleted — `check:log` treats it
   as a failure rather than a cleanup.
-- `kind` ∈ `fix` | `taste` | `guard` | `revert`, cut by **who may demand a revert**: dropping it
-  makes a bug → `fix`; dropping it only annoys me → `taste` (it carries zero obligation, and on an
+- `kind` ∈ `fix` | `perf` | `taste` | `guard` | `revert`, cut by **who may demand a revert**: dropping it
+  makes a bug → `fix`; dropping it only re-introduces measurable degradation → `perf`; dropping it
+  only annoys me → `taste` (it carries zero obligation, and on an
   upgrade it may be discarded wholesale). A change that is both splits into two entries.
   A withdrawal is recorded too — a log without reverts reads like a victory list.
 - An entry is an assertion **as of its commit**, not current state. Do not re-verify old entries,
