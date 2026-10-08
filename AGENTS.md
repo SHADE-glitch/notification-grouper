@@ -101,6 +101,20 @@ attribute, published under GPL-2.0-or-later.
   reason; keep that setting.
 - A red CI is never made green by widening a skip list or loosening an assertion. Fix the cause,
   or move the change outside the declared coverage window.
+- **Keep CI in step with the code.** Update `.github/workflows/ci.yml` in the *same change* that
+  makes it stale — never as a later cleanup.
+- **New or renamed tests need no CI edit** as long as CI runs the suite command (`npm test`); it
+  does, so it picks them up automatically. Only touch CI if the *command itself* changes.
+- **Environment changes** — a new dependency, a Node version bump, or a new system tool — mean
+  updating the workflow's setup/install steps.
+- **Renamed or moved code**: `check:log` watches a declared list (`CODE_PATHS` in `tests/check-log.mjs`).
+  If a watched file (`extension.js`, `groupEngine.js`) moves, update that list; the check goes red
+  until you do.
+- **After a refactor**, confirm CI still exercises the real code and the declared paths still cover
+  it. A green CI that no longer touches the changed code is worse than a red one.
+- **A new verification tier** (headless / live) — decide explicitly whether CI runs it; do not add it silently.
+- If what CI runs changes, update this section too. CI is a signal, not a gate, until branch protection
+  is enabled — read the result after every push.
 
 ## Release / version
 - The shipped version is the integer **`version`** field in `metadata.json` — the only place the
