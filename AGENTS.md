@@ -91,6 +91,24 @@ attribute, published under GPL-2.0-or-later.
   **L2** = the real user session, which nothing here can automate.
 - When fixing a bug, add a regression test that **fails against the pre-fix code** first.
 
+## CI
+- CI runs exactly two commands, and both must stay green: **`npm test`** (the L0 suite — the
+  engine tests plus the repository-level doc guards; no shell, no dependencies) and
+  **`npm run check:log`** (the recording-coverage gate). `.github/workflows/ci.yml` runs them on
+  `ubuntu-latest` with Node 20, on every push and pull request.
+- `check:log` walks `git log <anchor>..HEAD`, so CI checks out with **`fetch-depth: 0`**. A
+  shallow clone would not contain the coverage anchor and the check would fail for the wrong
+  reason; keep that setting.
+- A red CI is never made green by widening a skip list or loosening an assertion. Fix the cause,
+  or move the change outside the declared coverage window.
+
+## Release / version
+- The shipped version is the integer **`version`** field in `metadata.json` — the only place the
+  number lives; nothing else hardcodes it.
+- Bump it when a change ships to users, in its own commit (precedent: `meta: version 5 -> 6`).
+  Tests, docs and tooling that ship nothing do not bump it.
+- `CHANGELOG.md` entries carry a `· vN` marker; keep it consistent with the bump you make.
+
 ## Docs & Commits
 - `README.md` and `README.zh-CN.md` are one document in two languages; keep both
   in sync with code changes.
