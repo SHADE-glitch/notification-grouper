@@ -3,7 +3,8 @@
  * check-log.mjs — the recording-coverage check. No dependencies, no build step;
  * `node tests/check-log.mjs` is the real gate and must keep working without npm.
  *
- * Five checks, all bounded by the window declared in CHANGELOG.md:
+ * Six checks, all bounded by the window declared in CHANGELOG.md:
+ *   0. the record is not empty (a coverage check over an empty set proves nothing)
  *   1. the coverage anchor resolves
  *   2. D-### ids are unique, strictly increasing, gapless, never reused
  *   3. every commit that touched a code path inside the window is cited by an entry
@@ -61,6 +62,11 @@ if (!anchorSha) fail(`1. coverage anchor does not resolve: ${anchor}`);
 const entryRe = /^### (D-\d+) · (\d{4}-\d{2}-\d{2}) · ([a-z]+)(?: · (.*))?$/gm;
 const entries = [...changelog.matchAll(entryRe)];
 const ids = entries.map((m) => m[1]);
+
+// A check whose target set is empty is a fake green: it reports PASS over nothing.
+if (entries.length === 0) {
+  fail(`0. the record has no entries — a coverage check over an empty set proves nothing. Widen the window to where real deviations exist, or state in the header that there are none to record.`);
+}
 
 for (const m of entries) {
   if (!KINDS.includes(m[3])) fail(`5. ${m[1]}: kind "${m[3]}" is not one of ${KINDS.join('/')}`);

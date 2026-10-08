@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/test-groupEngine.mjs",
+    "test": "node tests/test-groupEngine.mjs && node tests/repo.test.mjs",
     "bench": "node scripts/bench.mjs",
     "verify:headless": "tests/headless-verify.sh",
     "verify:ui-guard": "tests/headless-ui-guard.sh",
