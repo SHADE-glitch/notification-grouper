@@ -100,6 +100,26 @@ cat > "$V/probe-u-$LABEL.js" <<JSPROBE
         say('healthyExpandedAfter', healthy.map(m => m.expanded));
         say('brokenMessageExpanded', broken.expanded);
 
+        // Regression (extension behaviour, same run): in a COLLAPSED merged group,
+        // closing one card must destroy only that notification. Native
+        // messageList.js:1107 upgrades the close to group.close(), wiping the whole
+        // merged stack — invisible natively (one card per source), costly after
+        // merging. A fresh group is used so the doctored 'broken' actor above does
+        // not leak in. Expected: post-fix notifsAfterClose = notifsBeforeClose - 1;
+        // native/pre-fix notifsAfterClose = 0 (entire group closed).
+        const closeGroup = new ml.NotificationMessageGroup(src);
+        const closeMsgs = [...closeGroup._notificationToMessage.values()];
+        say('closeGroupExpanded', closeGroup.expanded);
+        say('closeGroupSize', closeMsgs.length);
+        say('ownSourcesHasSrc', inst._ownSources
+            ? inst._ownSources.has(src) : 'field absent (pre-fix build)');
+        const notifsBeforeClose = src.notifications.length;
+        if (closeMsgs.length > 0)
+            closeMsgs[0].close();
+        await sleep(400);
+        say('notifsBeforeClose', notifsBeforeClose);
+        say('notifsAfterClose', src.notifications.length);
+
         inst.disable();
     } catch (e) {
         out.error = String(e && e.message || e) + ' @ ' + (e && e.fileName || '?') + ':' + (e && e.lineNumber || '?');

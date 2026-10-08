@@ -125,6 +125,21 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         say('nativePidKeys', [...fdo._sourceForPidAndName.keys()]);
         say('nativeAppSources', fdo._sourcesForApp.size);
 
+        // Regression: opening a card must not wipe the whole merged source.
+        // Native FdoNotificationDaemonSource.open() runs
+        // destroyNonResidentNotifications(), which empties the source; native
+        // sources hold one card so it is invisible, but the merged source holds
+        // the whole group (that is the "click one card -> blank tray, group
+        // gone" report). The extension overrides open() on the sources it
+        // creates, so only the clicked card's own activate() destroy survives.
+        const merged = srcs.find(s => s.title === 'VerifyMerge');
+        if (merged) {
+            say('mergedIsOwned', inst._ownSources ? inst._ownSources.has(merged) : false);
+            say('mergedNotifsBeforeOpen', merged.notifications.length);
+            merged.open();
+            say('mergedNotifsAfterOpen', merged.notifications.length);
+        }
+
         inst.disable();
         say('finalRestored', fdo.NotifyAsync === pNotify);
     } catch (e) {
@@ -187,6 +202,10 @@ checks = [
     ('native cached one pid per group', len(d.get('nativePidKeys') or []) == 2,
      'got %r' % d.get('nativePidKeys')),
     ('no wrapper recursion',           frames == 0, '%d recursive frames' % frames),
+    ('merged source recognised',       d.get('mergedIsOwned') is True, ''),
+    ('open() does not wipe the group', (d.get('mergedNotifsBeforeOpen') or 0) >= 3 and
+                                       d.get('mergedNotifsAfterOpen') == d.get('mergedNotifsBeforeOpen'),
+     'before %r after %r' % (d.get('mergedNotifsBeforeOpen'), d.get('mergedNotifsAfterOpen'))),
     ('disable restored cleanly',       d.get('finalRestored') is True, ''),
 ]
 bad = 0

@@ -60,6 +60,7 @@ export const REQUIRED_PATCHES = [
 export const REQUIRED_UI_GUARDS = [
     'Message.unexpand',
     'NotificationMessageGroup.collapse',
+    'NotificationMessage.close',
 ];
 
 /**
@@ -68,8 +69,10 @@ export const REQUIRED_UI_GUARDS = [
  * @param {boolean} [info.moduleLoaded] messageList.js 是否 import 成功
  * @param {boolean} [info.hasMessage]
  * @param {boolean} [info.hasGroup]
+ * @param {boolean} [info.hasNotifMessage]
  * @param {boolean} [info.hasUnexpand]
  * @param {boolean} [info.hasCollapse]
+ * @param {boolean} [info.hasNotifClose]
  * @param {string} [info.detail] 诊断用
  * @returns {{apply: boolean, warnings: string[], guards: string[]}}
  */
@@ -82,10 +85,14 @@ export function checkUiGuardPoints(info = {}) {
             warnings.push('Message class not exported');
         if (!info.hasGroup)
             warnings.push('NotificationMessageGroup class not exported');
+        if (!info.hasNotifMessage)
+            warnings.push('NotificationMessage class not exported');
         if (!info.hasUnexpand)
             warnings.push('Message.prototype.unexpand missing');
         if (!info.hasCollapse)
             warnings.push('NotificationMessageGroup.prototype.collapse missing');
+        if (!info.hasNotifClose)
+            warnings.push('NotificationMessage.prototype.close missing');
     }
     if (warnings.length > 0)
         return { apply: false, warnings, guards: [] };

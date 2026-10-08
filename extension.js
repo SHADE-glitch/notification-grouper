@@ -1,6 +1,7 @@
 // notification-grouper@local — GNOME 50 通用通知分组（零配置，只按发出应用分组）。
 //
-// 机制：只挂接 FDO 实例的两个方法（自降级：缺任一 -> 完全惰性，不半挂载）：
+// 机制：挂接 FDO 实例的两个方法 + 一处"只在自建源上"的行为覆盖
+// （自降级：前两个缺任一 -> 完全惰性，不半挂载；后两者独立降级）：
 //  1. NotifyAsync 包裹层：入口读 hints（deepUnpack），computeGroup()（纯函数，
 //     见 groupEngine.js）得 {groupKey, mergeable}，暂存 _pending（携带 senderPid
 //     与原始 app_name 两个一致性校验位）。50.1 源码核对：NotifyAsync 为同步方法
@@ -10,26 +11,31 @@
 //     复用/新建共享 Source；mergeable=false（app_name 为空）一律原生直通。
 //     已解析到 source.app 的走 _getSourceForApp，原生已按 App 成栈，本扩展不碰；
 //     Gtk 路径（GtkNotificationDaemon*）是另一个独立对象与类，不引用不 patch。
+//  3. 新建共享 Source 时覆盖它的 open()：原生 open() 会 destroyNonResident-
+//     Notifications() 把整个源清空，原生一个源≈一张卡，合并后却是一组——点一张
+//     卡就清整组。覆盖后只保留 openApp()（本源 app 恒 null，实为 no-op），被点的
+//     那张仍由 Notification.activate() 自行销毁。原生源不碰、disable 时还原。
 //
 // 覆盖范围：所有解析不到 App 的来源（_getSourceForPidAndName 路径）——有 app_name
 // 但无 App 的来源，原生每次新 pid 建新 Source，本扩展按归一化 app_name 合并到
 // 同一共享 Source，实现"按发出应用分组"。
 //
-// 界面/点击/图标/上限全部走原生：不覆盖 _appName/_appIcon，不注入按钮，不遮蔽
-// source.open()（点一张卡 = 原生 open() -> destroyNonResidentNotifications()，
-// 与原生堆叠源行为一致）。disable 时还原两处补丁、断开每源信号、清空缓存。
+// 界面/图标/上限全部走原生：不覆盖 _appName/_appIcon，不注入按钮。唯一的界面行为
+// 差异是上面第 3 点（自建源的 open() 不再批量清空）与下面的 close 兜底，二者都只
+// 作用于本扩展自建的合并源。disable 时还原 daemon 两处补丁、自建源的 open() 覆盖、
+// 两处 UI 方法兜底、断开每源信号、清空缓存。
 //
 // 日志：默认安静——enable/attach/disable 各一行；无 per-notify 日志，永不记 body。
 //
-// 第三类挂接（与分组无关，独立降级）：GNOME 50 原生 messageList.js 有一个
-// "折叠分组时踩到已销毁 actor"的缺陷，一旦抛出就会把分组永久留在半折叠态，
-// 之后每次点击都被 native 的 if (!this.expanded) 吞掉——用户看到的正是
-// "通知栏卡住、点什么都没反应"。本扩展把多个 pid 并成一个源，客观上把分组
-// 做大，从而放大了这个原生缺陷的触发概率，因此在此提供兜底：
-//   - Message.unexpand()：actor 无 layout manager 时落终态返回，保证
-//     collapse() 的 forEach 能跑完；
-//   - NotificationMessageGroup.collapse()：捕获抛出并强制 _expanded/cover 落位。
-// 取不到 messageList.js 只丢兜底，分组照常；上游修复后本段可整块删除。
+// UI 兜底（与分组无关，独立降级）：GNOME 50 原生 messageList.js 有两处会把 N 卡的
+// 合并组坑到的行为，取不到 messageList.js 只丢兜底、分组照常，上游修复后本段可整块删除：
+//   - Message.unexpand() + NotificationMessageGroup.collapse()：原生缺陷——"折叠分组
+//     时踩到已销毁 actor"一旦抛出，分组永久留在半折叠态，之后每次点击都被 native 的
+//     if (!this.expanded) 吞掉（用户看到的"通知栏卡住、点什么都没反应"）。前者 actor 无
+//     layout manager 时落终态返回保证 forEach 跑完，后者捕获抛出并强制 _expanded/cover 落位。
+//   - NotificationMessage.close()：折叠组的每消息 close 处理会把"关一张"升级成"关整组"
+//     （messageList.js:1107），原生一个源≈一张卡时看不见，合并后代价放大；这里仅对本扩展
+//     自建源 + 折叠态，改为只关这一张（直接跑 close 的默认处理器 on_close）。
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -40,8 +46,10 @@ const LOG_PREFIX = '[notification-grouper]';
 
 export default class NotificationGrouperExtension extends Extension {
     _enabled = false;
-    /** groupKey -> {source, hid}（共享 Source 缓存，destroy 自清） */
+    /** groupKey -> {source, hid, origOpen, patchedOpen}（共享 Source 缓存，destroy 自清） */
     _shared = new Map();
+    /** 本扩展创建的合并 Source 集合：UI 层据此判断"这张卡属于本扩展"（见 _attachUiGuards） */
+    _ownSources = new Set();
     /** 当前同步调用中的 computeGroup 结果与校验上下文（见文件头设计 1） */
     _pending = null;
     _orig = null;
@@ -54,6 +62,7 @@ export default class NotificationGrouperExtension extends Extension {
     enable() {
         this._enabled = true;
         this._shared = new Map();
+        this._ownSources = new Set();
         this._pending = null;
         this._appliedPatches = [];
         this._appliedGuards = [];
@@ -79,8 +88,16 @@ export default class NotificationGrouperExtension extends Extension {
             } catch {
                 /* already gone */
             }
+            // 还原合并源上的 open() 覆盖（原生源从未被覆盖过）。
+            try {
+                if (rec.patchedOpen && rec.source.open === rec.patchedOpen)
+                    rec.source.open = rec.origOpen;
+            } catch {
+                /* source already disposed */
+            }
         }
         this._shared.clear();
+        this._ownSources.clear();
         this._pending = null;
         const restored = this._appliedPatches;
         const restoredGuards = this._appliedGuards;
@@ -131,6 +148,10 @@ export default class NotificationGrouperExtension extends Extension {
     //                          之后且无 try/finally -> 状态永久停在半折叠，
     //                          此后每次点击都被 :1114 的 if (!this.expanded) 吞掉，
     //                          用户看到的是"通知栏卡住、点什么都没反应"。
+    //
+    // 第二处（同一 section，机制不同）：折叠组里关一张卡会被 :1107 的 stop_emission +
+    //   group.close() 升级成关整组。原生一个源≈一张卡时看不见；合并把一组变 N 张后，
+    //   代价被放大。兜底只对本扩展自建源 + 折叠态改为只关这一张（见 _attachUiGuards）。
 
     /**
      * 还原 UI 兜底。可安全重复调用；_origUi 非 null 即"当前已挂"的唯一判据。
@@ -146,6 +167,11 @@ export default class NotificationGrouperExtension extends Extension {
         }
         try {
             o.Group.prototype.collapse = o.collapse;
+        } catch {
+            /* best effort */
+        }
+        try {
+            o.NotificationMessage.prototype.close = o.notifClose;
         } catch {
             /* best effort */
         }
@@ -173,13 +199,17 @@ export default class NotificationGrouperExtension extends Extension {
 
         const Message = mod ? mod.Message ?? null : null;
         const Group = mod ? mod.NotificationMessageGroup ?? null : null;
+        const NotificationMessage = mod ? mod.NotificationMessage ?? null : null;
         const check = checkUiGuardPoints({
             moduleLoaded: !!mod,
             detail,
             hasMessage: !!Message,
             hasGroup: !!Group,
+            hasNotifMessage: !!NotificationMessage,
             hasUnexpand: !!(Message && typeof Message.prototype.unexpand === 'function'),
             hasCollapse: !!(Group && typeof Group.prototype.collapse === 'function'),
+            hasNotifClose: !!(NotificationMessage &&
+                typeof NotificationMessage.prototype.close === 'function'),
         });
         if (!check.apply) {
             this._appliedGuards = [];
@@ -190,8 +220,10 @@ export default class NotificationGrouperExtension extends Extension {
         this._origUi = {
             Message,
             Group,
+            NotificationMessage,
             unexpand: Message.prototype.unexpand,
             collapse: Group.prototype.collapse,
+            notifClose: NotificationMessage.prototype.close,
         };
 
         const origUnexpand = this._origUi.unexpand;
@@ -232,6 +264,31 @@ export default class NotificationGrouperExtension extends Extension {
                     /* group already disposed */
                 }
             }
+        };
+
+        // 第三处兜底：折叠组里点一张卡的 ×，原生会把 close 升级成"关整组"
+        // （messageList.js:1107 先 stop_emission 再 group.close()）。原生一个源≈
+        // 一张卡，代价看不见；合并让一组变 N 张，"关整组"的代价随之放大。这里只在
+        // **本扩展创建的合并源**、且组处于折叠态时，改为只关这一张：直接跑 close
+        // 信号的默认处理器 on_close()（GJS 按 on_<signal> 自动接线，实测确认），
+        // 跳过派发，组处理器就不会把这次 close 升级成整组关闭。原生源、展开态、
+        // 单卡组一律走原生路径（单卡组按 :952 的 getter 视为已展开）。
+        const ownSources = this._ownSources;
+        const origNotifClose = this._origUi.notifClose;
+        NotificationMessage.prototype.close = function () {
+            try {
+                const item = this.get_parent();
+                const group = item ? item.get_parent() : null;
+                if (group instanceof Group && !group.expanded &&
+                    ownSources.has(group.source) &&
+                    typeof this.on_close === 'function') {
+                    this.on_close();
+                    return;
+                }
+            } catch {
+                /* 判定失败就落回原生，绝不吞掉一次关闭 */
+            }
+            return origNotifClose.call(this);
         };
 
         this._appliedGuards = check.guards;
@@ -333,14 +390,40 @@ export default class NotificationGrouperExtension extends Extension {
             if (rec)
                 return rec.source;
             const source = self._orig.getSource.call(this, sender, pid, appName);
+
+            // 第三挂载点（与分组补丁相互独立、独立降级）：合并源没有 app（本路径
+            // 原生即传 null），原生 Source.open() = openApp()（对 null app 是
+            // no-op，也不关日历）+ destroyNonResidentNotifications()，后者把**整个
+            // 共享源**里的非驻留通知一起清掉。原生一个源≈一个 sender，清掉的通常
+            // 只有一张；合并把作用域放大成整组 —— 用户看到"点一张卡 -> 空白一片 ->
+            // 整组消失"。这里只保留"打开应用"那半句，去掉批量销毁；被点的那张仍由
+            // Notification.activate() 随后的 destroy() 自行销掉，于是点哪张只删哪张。
+            let origOpen = null;
+            let patchedOpen = null;
+            const rawOpen = source.open;
+            if (typeof rawOpen === 'function') {
+                origOpen = rawOpen;
+                patchedOpen = function () {
+                    if (typeof this.openApp === 'function')
+                        return this.openApp();
+                };
+                source.open = patchedOpen;
+            } else {
+                self._warnOnce('source-open-missing',
+                    'FdoNotificationDaemonSource.open 不可用，点一张卡仍会清空整组（请上报）');
+            }
+
+            self._ownSources.add(source);
             // destroy 自清：仅当缓存里仍是本源时才删（防旧源的延迟 destroy
             // 误删同 key 的新源）。
             const hid = source.connect('destroy', () => {
                 const cur = self._shared.get(key);
-                if (cur && cur.source === source)
+                if (cur && cur.source === source) {
                     self._shared.delete(key);
+                    self._ownSources.delete(source);
+                }
             });
-            self._shared.set(key, { source, hid });
+            self._shared.set(key, { source, hid, origOpen, patchedOpen });
             return source;
         };
 

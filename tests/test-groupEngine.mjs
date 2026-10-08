@@ -104,16 +104,18 @@ test('checkAttachPoints：2 补丁齐全则 attach，缺失则 inert', () => {
 });
 
 // UI 兜底点自检：与分组补丁相互独立，且默认 fail-safe（信息不全就不挂）
-test('checkUiGuardPoints：4 项齐全才 apply', () => {
+test('checkUiGuardPoints：6 项齐全才 apply', () => {
     const full = {
         moduleLoaded: true, hasMessage: true, hasGroup: true,
-        hasUnexpand: true, hasCollapse: true,
+        hasNotifMessage: true, hasUnexpand: true, hasCollapse: true,
+        hasNotifClose: true,
     };
     const ok = checkUiGuardPoints(full);
     assert.equal(ok.apply, true);
     assert.deepEqual(ok.guards, REQUIRED_UI_GUARDS);
     assert.deepEqual(REQUIRED_UI_GUARDS,
-        ['Message.unexpand', 'NotificationMessageGroup.collapse']);
+        ['Message.unexpand', 'NotificationMessageGroup.collapse',
+            'NotificationMessage.close']);
     // 独立性：兜底点绝不能和分组补丁点混为一谈
     assert.deepEqual(REQUIRED_UI_GUARDS.filter(g => REQUIRED_PATCHES.includes(g)), []);
 });
@@ -121,14 +123,17 @@ test('checkUiGuardPoints：4 项齐全才 apply', () => {
 test('checkUiGuardPoints：任一项缺失 -> 不挂、只警告', () => {
     const full = {
         moduleLoaded: true, hasMessage: true, hasGroup: true,
-        hasUnexpand: true, hasCollapse: true,
+        hasNotifMessage: true, hasUnexpand: true, hasCollapse: true,
+        hasNotifClose: true,
     };
     const cases = [
         ['moduleLoaded', /messageList module unavailable/],
         ['hasMessage', /Message class not exported/],
         ['hasGroup', /NotificationMessageGroup class not exported/],
+        ['hasNotifMessage', /NotificationMessage class not exported/],
         ['hasUnexpand', /unexpand missing/],
         ['hasCollapse', /collapse missing/],
+        ['hasNotifClose', /close missing/],
     ];
     for (const [key, re] of cases) {
         const r = checkUiGuardPoints({ ...full, [key]: false, detail: 'boom' });
