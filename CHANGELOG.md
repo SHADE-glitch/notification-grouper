@@ -90,3 +90,29 @@ Cost     上游修好后应整块删除——它是缺陷兜底不是功能。�
          把一个原生几乎碰不到的缺陷变成偶尔可碰（README § Why an extension for grouping
          patches shell UI）
 Commit   528b234
+
+### D-008 · 2026-10-08 · fix · v7
+Symptom  点一张没有 default action 的通知，原生 `FdoNotificationDaemonSource.open()` 先
+         `openApp()`（本源 app 恒 null，实为 no-op）再 `destroyNonResidentNotifications()`，
+         清空整个来源。原生按发送方缓存来源≈一张卡，看不见；跨 pid 合并把作用域放大成
+         一整组，于是"点一张卡 -> 列表清空、日历停在空白页、整组消失"
+Change   新建自建源时覆盖它的 `open()`，只保留 `openApp()`、去掉批量销毁；被点的那张仍由
+         `Notification.activate()` 对非驻留通知的 `destroy()` 自行销掉。原生源不碰，
+         `disable()` 按每记录 `origOpen` 还原（`source.open === rec.patchedOpen` 守卫防误
+         还原）；`source.open` 非函数时只告警不拖累分组
+Evidence L1 2026-10-08 `verify:headless` 14/14（新增 "merged source recognised"、
+         "open() does not wipe the group"：调共享源 open() 后通知数不变）；L2 未验证
+Cost     去掉覆盖即回到"点一张清整组"。它只作用于本扩展自建源，故删除它的代价仅限该场景
+Commit   eb0a0fa
+
+### D-009 · 2026-10-08 · taste · v7
+Symptom  折叠组里点一张卡的 ×，原生 `messageList.js:1107` 会把 close 升级成"关整组"。
+         原生一个源≈一张卡时看不见，合并后代价放大
+Change   仅当"本扩展自建源 + 组处于折叠态"时，改为直接跑 close 的默认处理器 `on_close()`
+         （GJS 按 `on_<signal>` 自动接线，已实测确认），只关被点的那张；原生源、展开态、
+         单卡组一律走原生路径
+Evidence L1 2026-10-08 `verify:ui-guard` 同一 harness 对新旧构建翻转：折叠组关一张，
+         pre-fix 3 -> 0（整组），post-fix 3 -> 2（只关一张）；L2 未验证
+Cost     taste 级：删掉它只退回"点 × 关整组"，不构成 bug。之所以仍做，是它与 D-008 同源
+         （合并放大原生 per-source 行为），一起改才自洽
+Commit   eb0a0fa

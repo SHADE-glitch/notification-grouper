@@ -14,6 +14,18 @@ attribute, published under GPL-2.0-or-later.
   grouping then stays completely inert. Never patch one point and leave the other —
   a half-mounted patch loses notifications. The UI guards (see below) degrade
   **separately**: a missing `messageList.js` must cost only the guards, never grouping.
+- **The merged source's `open()` is overridden per instance, and only on sources this
+  extension creates.** Native `FdoNotificationDaemonSource.open()` runs
+  `destroyNonResidentNotifications()`, emptying the whole source; native sources hold one
+  card so the blast radius is invisible, but a merged source holds the whole group, so
+  the click that opens one card used to wipe every card in it. That is the reported
+  "click one card → blank list, group gone". The override keeps `openApp()` only (a no-op
+  here, `source.app` is null on this path) and drops the mass destroy, so only the clicked
+  card's own `Notification.activate()` → `destroy()` runs. Native sources are never
+  touched; the original is restored in `disable()` (per-record `origOpen`, guarded by
+  `source.open === rec.patchedOpen` so a re-entrant create cannot clobber the wrong
+  method). If `source.open` is not a function, grouping still works and one warning is
+  logged (`source-open-missing`).
 - **`NotifyAsync` being synchronous is what makes `_pending` safe.** The try/finally
   stash in `extension.js` relies on JS single-threaded execution plus synchronous D-Bus
   dispatch, with no `await` between the entry point and the Source lookup. If upstream
@@ -40,8 +52,9 @@ attribute, published under GPL-2.0-or-later.
   exported class is allowed, but only for the two whitelisted workarounds below, and the
   original must be captured and restored in `disable()`.
 - **The two UI guards are a workaround for a GNOME defect, not a feature** — delete them
-  wholesale once upstream fixes it. They patch `Message.prototype.unexpand` and
-  `NotificationMessageGroup.prototype.collapse` in `ui/messageList.js`, reached by
+  wholesale once upstream fixes it. They patch `Message.prototype.unexpand`,
+  `NotificationMessageGroup.prototype.collapse` and `NotificationMessage.prototype.close`
+  in `ui/messageList.js`, reached by
   **dynamic `import()`** inside `_attachUiGuards()`. It must stay a dynamic import: a
   static top-level import would put the whole extension into ERROR state if GNOME ever
   renames that module, which is strictly worse than shipping without the guards.
@@ -55,6 +68,17 @@ attribute, published under GPL-2.0-or-later.
   `_expanded = false` (:998) and `_cover.show()` (:1000). The group is left permanently
   half-collapsed, after which every click is swallowed by the `if (!this.expanded)` branch
   at :1114 and the tray looks dead. That is the user-visible "nothing responds when I click".
+- **The `NotificationMessage.close` guard exists for the same "merged stack amplifies a
+  native per-source behaviour" reason, not for the collapse defect.** Native
+  `messageList.js:1107` runs on every message's `close` signal: when the group is
+  collapsed it `signal_stop_emission` and calls `group.close()`, closing the whole group.
+  With one card per native source that is invisible; after merging it closes the entire
+  stack. The guard diverts to `this.on_close()` (the signal's default handler — GJS
+  auto-wires `on_close`; verified) **only** when all three hold: the message's group is a
+  `NotificationMessageGroup`, that group is collapsed, and `group.source` is in this
+  extension's `_ownSources`. Everything else falls through to the original. Do not widen
+  the condition to native sources, to expanded groups, or to single-card groups — a
+  single-card group reports `expanded === true` (:952) and must keep the native path.
 - **`_attachUiGuards()` must bail if `disable()` happened while it awaited** — it checks
   `this._enabled` after the `await`. Without that, a fast enable/disable cycle leaves
   patched prototypes that nothing will ever restore.
@@ -64,8 +88,9 @@ attribute, published under GPL-2.0-or-later.
   `dateMenu.js`, so skipping that `emit` is safe.
 - **Logging discipline**: one line each for enable/attach/disable, never per-notify,
   never log notification bodies. Keep it that way.
-- **`disable` must** restore both daemon patches *and* both UI guards (`_detachUiGuards()`),
-  disconnect per-source signals, and clear the `_shared` cache.
+- **`disable` must** restore both daemon patches, every self-created source's overridden
+  `open()`, *and* every UI guard (`_detachUiGuards()`), disconnect per-source signals, and
+  clear the `_shared` cache.
 
 ## Tests
 - **`npm test` only covers `groupEngine.js`.** It cannot execute `extension.js` at all — the

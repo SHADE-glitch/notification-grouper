@@ -52,9 +52,11 @@ Read this before opening an issue — several of these are deliberate.
 - **No configuration of any kind.** Per-app branches, rule files and title
   patterns were all removed; the engine contains no application name at all.
   Grouping is a pure function of the identity the sender declares.
-- **No UI changes.** Icons, titles, banners, urgency, click behaviour and the
-  native 10-notifications-per-source cap are all left to GNOME. The extension
-  injects no buttons and overrides no headers.
+- **No UI changes of its own.** Icons, titles, banners, urgency and the native
+  10-notifications-per-source cap are all left to GNOME. The extension injects no
+  buttons and overrides no headers. The only click-behaviour differences are the two
+  narrow ones described under [Click behaviour to expect](#click-behaviour-to-expect-native-not-configurable)
+  — both applied **only to the stacks this extension itself creates**.
 
 ## 🔬 How it works
 
@@ -66,6 +68,33 @@ Two methods are wrapped on the FDO backend instance
 | `NotifyAsync` | Reads the hints at the entry point, computes the group, stashes the result |
 | `_getSourceForPidAndName` | Consumes the stash; returns a shared source, or falls through to native |
 
+Both methods must exist for anything to be installed. If either is missing the
+extension stays completely inert and logs one warning — it never half-attaches.
+
+### Click behaviour of the merged source
+
+Native `FdoNotificationDaemonSource.open()` does two things: it activates the owning
+app, then calls `destroyNonResidentNotifications()` — which destroys **every**
+non-resident notification in the source. Native caches one source per sender, so a
+source almost always holds exactly one card and the mass-destroy is invisible. Merging
+turns that one source into the whole group, so the same call used to wipe the entire
+stack: click a card that has no place to jump to, and the list emptied while the
+calendar stayed open — a blank page, with the group gone.
+
+The extension therefore **overrides `open()` on the sources it creates** (and only
+those): it keeps the app-activation half and drops the mass destroy. The clicked card
+still goes away on its own, because `Notification.activate()` calls `destroy()` on the
+non-resident notification. Net effect: clicking one card removes exactly that card.
+
+For the same reason it diverts the **close** path: closing a card in a *collapsed*
+group normally closes the whole group (`messageList.js:1107` — a per-source behaviour
+that only became visible once groups grew). The extension turns that into "close this
+card", again only for collapsed groups whose source it created.
+
+Both are strictly scoped to stacks this extension creates; native sources and expanded
+groups keep native behaviour. See [Click behaviour to expect](#click-behaviour-to-expect-native-not-configurable)
+and [Known limitations](#-known-limitations).
+
 The stash is a single slot, which is safe because the shell-side `NotifyAsync`
 is a plain synchronous method — there is no `await` between reading the hints
 and resolving the source, and D-Bus dispatch on that connection is not
@@ -74,11 +103,8 @@ patch, the stash also carries the sender pid; if the pid seen by the two calls
 ever disagrees, the notification falls through to native untouched and a single
 warning is logged.
 
-Both methods must exist for anything to be installed. If either is missing the
-extension stays completely inert and logs one warning — it never half-attaches.
-
-`disable()` restores both methods, disconnects the per-source handlers and
-clears the cache.
+`disable()` restores both methods, every overridden source `open()`, disconnects the
+per-source handlers and clears the cache.
 
 ### Group key
 
@@ -175,7 +201,7 @@ without a live session:
 ```sh
 npm test                   # 11 pure-function cases
 npm run bench              # engine throughput
-npm run verify:headless    # 12 runtime assertions against a throwaway shell
+npm run verify:headless    # 14 runtime assertions against a throwaway shell
 tests/headless-ui-guard.sh <dir> <label>   # provokes the native collapse fault
 ```
 
@@ -234,25 +260,28 @@ open an issue if you see `UI guards degraded` in the journal.
 
 ### Click behaviour to expect (native, not configurable)
 
-- **Clicking a card in a collapsed group does not activate it — it only expands the
-  group.** `messageList.js:1114` stops the click emission and turns it into an
+- **Clicking a card in a collapsed multi-card group does not activate it — it only
+  expands the group.** `messageList.js:1114` stops the click emission and turns it into an
   expand request. A group of exactly **one** card is treated as already expanded (`:952`),
   which is why small native groups appeared to "click and dismiss". Merged groups are
   multi-card, so expect the first click to expand and the click on the revealed card to act.
+- **Clicking a card in an expanded group no longer empties the group.** Before this
+  extension overrode it, `Source.open()` cleared the whole source; now only the clicked
+  card is removed, and the rest of the group stays (see
+  [Click behaviour of the merged source](#click-behaviour-of-the-merged-source)).
 - **A notification from a sender that does not resolve to an application can never jump
   anywhere.** `openApp()` returns immediately when `source.app` is null, and the path this
   extension handles is precisely the path where it is null. Whether a click launches
   something is decided by the *sender* offering a `default` action
   (`notificationDaemon.js:232-241`) — no extension can retrofit it.
-- Clicking a card in a collapsed group's close button closes the **entire group** (`:1107`).
+- **Clicking one card's close button now closes just that card**, in a collapsed merged
+  group too (native would have closed the whole group there).
 
 ## ⚠️ Known limitations
 
-- **Clicking one card dismisses the whole merged stack** once the group is expanded (or
-  when it holds a single card). That is native `Source.open()` behaviour
-  (`destroyNonResidentNotifications()`); merging across processes widens its scope from
-  one process's cards to the group's. See "Click behaviour to expect" above for why the
-  first click on a collapsed multi-card group only expands it.
+- **The first click on a collapsed merged group only expands it** (native `:1114`); the
+  action fires on the second click. This is unavoidable without re-implementing click
+  handling, and it mirrors what a native multi-card stack does.
 - **A `desktop-entry` hint that names a non-existent `.desktop` file decouples
   the group key from the stack title.** The group is keyed on the hint while
   the title comes from `app_name`. Narrow case — real GTK apps resolve to an
