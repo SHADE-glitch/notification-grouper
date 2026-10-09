@@ -8,13 +8,15 @@
 ![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 [![Repository](https://img.shields.io/badge/repository-GitHub-black?logo=github)](https://github.com/SHADE-glitch/notification-grouper)
 
-GNOME 50。零配置——没有设置界面、没有规则文件、没有配置项。
+GNOME 50。开箱即用——默认值就是全部设计意图，你不必配置任何东西。真想改行为时有四个
+白话开关；没有规则文件，也没有需要学习的配置格式。
 
 ## 📖 项目说明
 
 **SHADE-glitch** 的**原创扩展**，不是分支，没有需要署名的上游项目。为 GNOME Shell
-50 编写，在 GNOME Shell 50.1 / Ubuntu 26.04 上验证。整个扩展就是两个方法包装加一个
-纯函数模块：没有设置界面、没有自己的 UI、不联网。
+50 编写，在 GNOME Shell 50.1 / Ubuntu 26.04 上验证。shell 侧代码是通知守护进程上的两个
+方法包装、对自己创建的来源的一处行为覆盖，以及一个自包含的缺陷兜底模块；分组本身是一个
+纯函数模块。它不在通知列表里画任何自己的 UI，也不联网。
 
 ## ❓ 要解决的问题
 
@@ -38,10 +40,15 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
   `node-notifier` 另一个栈。只有真正为空的 `app_name` 才算"这个发送方不表明身份"，
   交给原生按 pid 隔离。代价是：两个互不相关的工具都以裸 `notify-send` 发送时会共用
   一个栈。想区分就给发送方一个独立的 `--app-name`（或 `desktop-entry` hint）。
-- **完全没有配置。** 按应用分支、规则文件、标题模式全部删除；引擎里不含任何应用名。
-  分组完全是"发送方声明的身份"的纯函数。
-- **不改 UI。** 图标、标题、横幅、紧急度、原生每源 10 条上限，全部交给 GNOME。
-  本扩展不注入按钮，也不覆盖栈头。唯一的点击行为差异是下面["你应该预期的点击行为"]
+- **没有规则引擎。** 分组逻辑里的按应用分支、规则文件、标题模式全部删除；引擎不含任何
+  应用名。分组完全是"发送方声明的身份"的纯函数。还能配的只有四个开关
+  （[设置](#-设置)），它们都不会把匹配能力带回来：唯一能填的表就是"这些名字别合并"。
+- **每堆卡片数只能往下调，不能往上调。** GNOME 每个来源最多留 10 条
+  （`messageTray.js:25`，超出后在 `:577-580` 同步销毁最旧那条）。`max-per-source` 可以设
+  1..10；再往上就等于重写原生 `addNotification`，也就是多第四个脆弱挂载点，所以有意不提供。
+  合并对这个上限的影响见[已知限制](#-已知限制)。
+- **不改 UI。** 图标、标题、横幅、紧急度全部交给 GNOME。本扩展不注入按钮，也不覆盖栈头。
+  唯一的点击行为差异是下面["你应该预期的点击行为"]
   (#你应该预期的点击行为原生决定不可配置)里那两处窄例外——都**只作用于本扩展自己
   创建的栈**。
 
@@ -68,7 +75,7 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 去掉批量销毁。被点的那张仍会自己消失，因为 `Notification.activate()` 会对非驻留通知
 调用 `destroy()`。净效果：点一张卡就只删那一张。
 
-关闭路径同理：在**折叠**组里关一张卡，原生会关掉整组（`messageList.js:1107` —— 一个
+关闭路径同理：在**折叠**组里关一张卡，原生会关掉整组（`messageList.js:1107-1112` —— 一个
 "每来源"的行为，组变大后才显现）。本扩展把它改成"只关这张卡"，同样只对折叠态且来源由
 本扩展创建的组生效。
 
@@ -80,8 +87,11 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 补丁打破，暂存里还带了发送方 pid；如果两次调用看到的 pid 不一致，这条通知就原样落回
 原生，并只记一条告警。
 
-`disable()` 会还原两个方法、每个被覆盖来源的 `open()`、断开各来源的 handler 并清空
-缓存。
+`disable()` 会还原两个方法、每个被覆盖来源的 `open()`、断开各来源与设置的 handler、清空
+缓存，并**销毁本扩展自建的合并来源**。最后这步不是收尾洁癖：这种来源持有的是一个 D-Bus
+名字订阅加一个通知策略，两者只有 `Source.destroy()` 才释放（`messageTray.js:597-609`）；
+更关键的是 `open()` 还原成原生版本之后再留着它，"点一张卡丢掉整组"就会回到"禁用之后"。
+所以禁用即撤销本扩展造成的全部状态，详见[已知限制](#-已知限制)。
 
 ### 分组键
 
@@ -95,6 +105,35 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 `FOO` 会落到同一组。
 
 热路径是纯函数，无正则、无文件 IO、无定时器。
+
+## ⚙️ 设置
+
+在**扩展**（Extensions）应用里打开，或者：
+
+```sh
+gnome-extensions prefs notification-grouper@local
+```
+
+所有设置**立即生效**——不需要先禁用再启用，也不需要注销。页面上有一个动作把四个键一次性
+恢复默认。
+
+| 设置 | 键 | 默认 | 作用 |
+| --- | --- | --- | --- |
+| 按发出应用分组 | `grouping-enabled` | 开 | 关掉就是原样回到 GNOME：每个发送进程一个栈。 |
+| 每堆保留卡片数 | `max-per-source` | 10 | 一个合并栈在**丢掉最旧那张**之前保留几张卡。范围 1..10；上限就是 GNOME 自己的数，所以只能往下调。 |
+| 兜底 GNOME 通知列表的两处缺陷 | `ui-guards` | 开 | 即[兜底一节](#-对-gnome-50-通知列表缺陷的兜底)说的那两处行为。只在你想要拿未打补丁的 GNOME 做对比时才关。 |
+| 不合并的应用 | `isolate-apps` | 空 | 这里列出的名字永不合并。匹配用的是真正拿来做分组键的那个身份，先去空白、再转小写，结尾的 `.desktop` 忽略。 |
+
+取值存放在 dconf 的 `org.gnome.shell.extensions.notification-grouper` 下；扩展在启用时读
+一次、之后每次变更读一次，通知热路径上不做任何读取。默认值就是上文描述的行为，所以新装的
+用户一个键都不用碰。
+
+两个要说清的头：
+
+- 把**按发出应用分组**关掉不会拆开已经合并的栈，只是不再让新通知加进去。要拆掉它们得靠禁用
+  扩展。
+- `max-per-source` 只作用于本扩展创建的栈。调小会**当场**修剪现有堆叠——这是有意的，改动不用
+  等下一条通知才看得见。
 
 ## 🧩 兼容性
 
@@ -125,8 +164,10 @@ journalctl --user -b | grep notification-grouper
 
 ## 🔒 隐私
 
-- 通知**正文永不写入日志**，而且完全没有逐条通知的日志：启用一行、禁用一行。
-- 不联网。不写文件。不持久化状态。唯一读取的就是每条通知里本来就有的、发送方声明的
+- 通知**正文永不写入日志**，而且完全没有逐条通知的日志：启用一行、禁用一行，拨动开关
+  时再记一两行。
+- 不联网。扩展自己不写文件，除你在设置页改的那四个键（存在 dconf，GNOME 的标准位置）之外
+  不留任何状态——卸载或 `dconf reset` 就干净了。每条通知里唯一读取的就是发送方本来就声明的
   身份。
 
 ## 📥 安装
@@ -146,7 +187,11 @@ gnome-extensions enable notification-grouper@local
 也可以在**扩展**（Extensions）应用里启用。
 
 **注销再登录**——这是加载新克隆扩展的可靠方式。开关一次**不会**重新加载改动过的
-JavaScript：shell 按进程缓存 ES 模块，所以验证代码改动需要重启 shell。
+JavaScript：shell 按进程缓存 ES 模块，所以验证代码改动需要重启 shell。（设置不是代码，
+它们是即时生效的，见[设置](#-设置)。）
+
+编译产物 `schemas/gschemas.compiled` 已随仓库提交，所以克隆后**什么都不用生成**；GNOME 50
+不再替扩展自动编译 schema。
 
 ### 卸载
 
@@ -158,8 +203,11 @@ rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
 ## 🔨 开发
 
 ```
-extension.js       两个 daemon 包装、来源缓存、UI 兜底、enable/disable
-groupEngine.js     纯函数：归一化、分组、挂载与兜底点自检
+extension.js       daemon 两处包装、合并来源缓存、设置、enable/disable
+groupEngine.js     纯函数：归一化、分组、挂载点与兜底点自检
+uiWorkarounds.js   GNOME 缺陷兜底，独立成一个可整块删除的文件
+prefs.js           设置页（独立 GTK 进程，shell 永不加载它）
+schemas/           gsettings schema；gschemas.compiled 已入库，无构建步骤
 tests/             node 套件 + headless 运行时 harness
 scripts/bench.mjs  引擎微基准
 ```
@@ -168,25 +216,31 @@ scripts/bench.mjs  引擎微基准
 Node 下都能跑，分组逻辑无需真实会话即可测试：
 
 ```sh
-npm test                   # 11 个纯函数用例
+npm test                   # 引擎单测 + 仓库级守卫，不需要 shell
+npm run check              # 对全部出厂 JS 做 node --check
 npm run bench              # 引擎吞吐
-npm run verify:headless    # 对一次性 shell 做 14 项运行时断言
-tests/headless-ui-guard.sh <目录> <标签>   # 逼出原生 collapse 缺陷
+npm run check:prefs        # prefs.js 只能用本机确实存在的 Adw/Gtk 成员（gjs）
+npm run verify:headless    # 一次性 shell 里的运行时断言，条数由它自己打印
+npm run verify:ui-guard    # 逼出原生缺陷，结论必须在两份构建之间**翻转**
+npm run verify:provoke     # 在 /tmp 副本里逐个把设置路径改坏，每条都必须打红一项断言
 ```
 
-`npm test` **只**覆盖 `groupEngine.js`，完全执行不到 `extension.js`。两个 headless
-harness 会起一个私有 GNOME Shell（`dbus-run-session` + `GSETTINGS_BACKEND=memory` +
-独立 `XDG_DATA_HOME`），不会碰你的会话、配置或通知栏。
-`tests/headless-ui-guard.sh` 对两份构建跑同一条断言，要求结果**翻转**——只在新代码上
-亮绿灯的探针什么也证明不了。
+上面这些命令的断言条数**刻意不写进本文**：手抄的总数加一条断言就过期，而过期之后的绿色数字
+看起来像证据，其实是噪声。两个 harness 各自打印自己的条数。
+
+`npm test` 覆盖引擎和仓库，**不**覆盖运行时行为：真正执行 `extension.js` 的只有
+`tests/headless-verify.sh`。两个 headless harness 会起一个私有 GNOME Shell
+（`dbus-run-session` + `GSETTINGS_BACKEND=memory` + 独立 `XDG_DATA_HOME`），不会碰你的
+会话、配置或通知栏。`tests/headless-ui-guard.sh` 对两份构建跑同一条断言，要求结果**翻转**
+——只在新代码上亮绿灯的探针什么也证明不了。
 
 harness 里也记下了那些实测才踩得到的坑：GNOME 50 拒绝符号链接的扩展目录（要复制）、
 `--nested` 已被移除、`gdbus` 会把裸 `-1` 参数当选项、`GLib.spawn_async` 返回的是 pid
-而不是子进程句柄。
+而不是子进程句柄，以及 `WeakRef` 不能用来查泄漏——GJS 不会按需回收 GObject 包装。
 
 `tests/fixtures/` 下的 JSON fixture 是用 `dbus-monitor` 从真实通知抓的。正文已清空、
-D-Bus 总线名已替换为占位符；发送方 pid 刻意保留，因为"每次调用 pid 都不同"正是整个
-扩展赖以成立的前提，fixture 是这件事的证据。
+D-Bus 总线名替换为占位符、应用名替换为通用名；发送方 pid 刻意保留，因为"每次调用 pid
+都不同"正是整个扩展赖以成立的前提，fixture 是这件事的证据。
 
 ## 🩹 对 GNOME 50 通知列表缺陷的兜底
 
@@ -205,11 +259,14 @@ GNOME 50 自己的 `ui/messageList.js` 有一个竞态，会把通知列表**冻
    里就永久留下一条**脏消息**。
 2. 之后 `collapse()` 在 `:992` 遍历到它，`Message.unexpand`（`646`）调用
    `ease_property('@layout.expansion', …)`。
-3. `_easeAnimatableProperty` 是**普通函数、不是 `async`**（`environment.js:196`），所以
-   那个 `TypeError` 是同步抛出的，`:341` 的 `.catch()` 根本接不到。
-4. `collapse()` 没有 `try/finally`，于是 `_expanded = false`（`:998`）和
-   `_cover.show()`（`:1000`）永不执行。分组永久停在半折叠态，此后每次点击都被 `:1114` 的
-   `if (!this.expanded)` 吞掉——这就是用户看到的"点什么都没反应"。
+3. `ease_property()` **就是** `_easeAnimatableProperty`，一个普通函数、**不是 `async`**
+   （`ui/environment.js:196`），所以那个 `TypeError` 是在遍历里同步抛出的。
+4. `collapse()` 是 `async` 却没有 `try/finally`，抛出只会让它返回一个被拒绝的 promise：
+   `_expanded = false`（`:998`）和 `_cover.show()`（`:1000`）永不执行。方法里唯一的
+   `.catch()`（`:1006`）属于 `collapse()` **自己那句在循环之后的** `ease_property_async`，
+   拦不到这次抛出；调用方如果没 `await collapse()`，就只在 journal 里留下一条 JS ERROR。
+   分组永久停在半折叠态，此后每次点击都被 `:1114-1119` 的 `if (!this.expanded)` 吞掉——
+   这就是用户看到的"点什么都没反应"。
 
 兜底做法：`Message.unexpand` 在 actor 已无 layout manager 时直接落终态返回（从而让循环
 能把剩下的消息处理完），`NotificationMessageGroup.collapse` 在仍有异常抛出时强制把状态
@@ -219,9 +276,13 @@ GNOME 50 自己的 `ui/messageList.js` 有一个竞态，会把通知列表**冻
 `messageList.js` 的名字，只会丢兜底，不会丢分组。这是在替上游的 bug 擦屁股——**上游修好
 后请整段删掉**；若你在 journal 里看到 `UI guards degraded`，请提 issue。
 
+它们住在 `uiWorkarounds.js` 里，那个文件加上它自己的 harness 就是完整的删除单元。在上游
+修好之前，**兜底 GNOME 通知列表的两处缺陷**这个开关可以随时把它们关掉，用来和未打补丁的
+GNOME 对比。
+
 ### 你应该预期的点击行为（原生决定，不可配置）
 
-- **折叠态的多卡组里点一张卡不会激活它，只会展开整组。** `messageList.js:1114` 会中止
+- **折叠态的多卡组里点一张卡不会激活它，只会展开整组。** `messageList.js:1114-1119` 会中止
   点击事件的继续派发，把它转成一次展开请求。恰好只有 **1** 张卡的组被视同已展开
   （`:952`），这就是为什么原生那些小组看起来"点了就消失"。合并后的组是多卡组，所以请
   预期第一下点击只展开、展开后再点那张卡才执行动作。
@@ -235,14 +296,46 @@ GNOME 50 自己的 `ui/messageList.js` 有一个竞态，会把通知列表**冻
 
 ## ⚠️ 已知限制
 
-- **折叠的合并组第一下点击只展开**（原生 `:1114`）；动作在第二下点击才触发。除非重写
+- **折叠的合并组第一下点击只展开**（原生 `:1114-1119`）；动作在第二下点击才触发。除非重写
   点击处理，这一点无法避免，且与原生多卡栈的行为一致。
+- **合并栈会比 GNOME 更早丢掉最旧那张卡。** GNOME 每个来源最多留 10 条，第 11 条到达时
+  同步销毁最旧那条（`messageTray.js:25`、`:577-580`，reason `EXPIRED`）。原生来源差不多
+  就是一张卡，所以几乎丢不到东西；合并把一个应用的卡片全放进同一个来源，于是一个**话多的
+  应用**发到第 10 张时，第 1 张就没了。本扩展不额外丢任何通知，也拦不住原生丢——拦它等于
+  重写 `addNotification`。所以 `max-per-source` 只能往小调；真被某个发送方刷屏，在它自己
+  那边静音比在这里过滤更合适。
 - **`desktop-entry` hint 指向不存在的 `.desktop` 文件时，分组键会和栈标题脱钩。**
   分组按 hint，标题按 `app_name`。这是窄场景——真实 GTK 应用会解析成 `App` 走原生
   路径——但两个应用共用这样的 hint 就会落进同一个栈。
-- **禁用不会取消已合并的分组。** 启用期间合并的栈保持其内容；只有新到的通知回到按
-  pid 的来源。
+- **禁用会把合并栈拆掉。** `disable()` 会销毁本扩展自建的来源，里面还没看完的卡片随之
+  退休。这是有意的：那种来源持有的 D-Bus 名字订阅与通知策略只有 `destroy()` 才释放，而且
+  `open()` 还原成原生版之后再留着它，就等于把本扩展要修的那个 bug 放回"禁用之后"。原本
+  就在**原生栈**里的通知完全不受影响。想要温和一点就关**按发出应用分组**：不再有新通知并
+  进来，已有的栈保持不动。
+- **这些被撤下的卡片发给发送方的 `NotificationClosed` reason 是 4（`undefined`）**，不是
+  "来源已关闭"。原生 `FdoNotificationDaemonSource.destroy()` 本身不接参数、`super.destroy()`
+  也不带 reason（`notificationDaemon.js:384-391`），reason 在映射之前就被丢掉了；要改只能
+  再 patch 第三个方法，为一条多数发送方并不关心的信号不值得。
 - 扩展 UUID 是 `notification-grouper@local`。
+
+### 排障
+
+先看 journal；这个扩展在没有值得说的话的时候是安静的。
+
+```sh
+journalctl --user -b | grep -i notification-grouper
+```
+
+- **完全不合并，还是每个进程一个栈。** 多半是发送方根本没声明身份。真正为空的 `app_name`
+  是有意交给原生的。让发送方带上 `--app-name`（或 `desktop-entry` hint）它就变成可合并的。
+- **两个互不相关的工具挤在同一个栈。** 它们都用 `notify-send` 这类通用名发送。把其中一个
+  加进**不合并的应用**。
+- **`WARNING degraded, staying inert`。** GNOME 改了本扩展包装的两个 daemon 方法之一。
+  请带着这一行开 issue；修好之前分组是关着的。
+- **`UI guards degraded` / `UI guards attach failed`。** 取不到 `ui/messageList.js`，于是
+  只缺缺陷兜底，分组照常。如果你那个 GNOME 版本已经没有底层缺陷，这行是预期且无害的。
+- **禁用之后通知列表还是卡死了。** 那正是 GNOME 自身的缺陷；兜底就是拦它的，重新启用扩展
+  （兜底已经开着还这样的话请上报）。
 
 ## 🤝 参与贡献
 
