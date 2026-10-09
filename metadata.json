@@ -5,7 +5,8 @@
   "shell-version": [
     "50"
   ],
+  "settings-schema": "org.gnome.shell.extensions.notification-grouper",
   "version": 7,
   "url": "https://github.com/SHADE-glitch/notification-grouper",
-  "_note": "shell-version 仅声明 50（本扩展在此版本核对过 FDO 两个补丁点 NotifyAsync/_getSourceForPidAndName 与原生共享源行为，运行时验证完整）。48/49 源码级兼容但未运行时验证，不声明。"
+  "_note": "shell-version 仅声明 50（本扩展在 50.1 逐点核对过三层补丁面：daemon 两方法、自建源的 open() 覆盖、uiWorkarounds.js 的三处原型兜底，以及扩展自带 schema 的读取路径；运行时验证完整）。48/49 源码级兼容但未运行时验证，不声明。依赖清单见 MAINTENANCE.md。"
 }

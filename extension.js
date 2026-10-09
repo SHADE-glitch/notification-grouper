@@ -23,24 +23,26 @@
 // 界面/图标/上限全部走原生：不覆盖 _appName/_appIcon，不注入按钮。唯一的界面行为
 // 差异是上面第 3 点（自建源的 open() 不再批量清空）与下面的 close 兜底，二者都只
 // 作用于本扩展自建的合并源。disable 时还原 daemon 两处补丁、自建源的 open() 覆盖、
-// 两处 UI 方法兜底、断开每源信号、清空缓存。
+// 三处 UI 方法兜底、断开每源信号，并**销毁本扩展自建的合并源**（它们持有的
+// watch_name 与 policy 只在 destroy() 里释放，且留着的话还原后的原生 open() 会重新
+// 批量清空整组）——于是禁用即撤销本扩展造成的全部状态。
 //
 // 日志：默认安静——enable/attach/disable 各一行；无 per-notify 日志，永不记 body。
 //
-// UI 兜底（与分组无关，独立降级）：GNOME 50 原生 messageList.js 有两处会把 N 卡的
-// 合并组坑到的行为，取不到 messageList.js 只丢兜底、分组照常，上游修复后本段可整块删除：
-//   - Message.unexpand() + NotificationMessageGroup.collapse()：原生缺陷——"折叠分组
-//     时踩到已销毁 actor"一旦抛出，分组永久留在半折叠态，之后每次点击都被 native 的
-//     if (!this.expanded) 吞掉（用户看到的"通知栏卡住、点什么都没反应"）。前者 actor 无
-//     layout manager 时落终态返回保证 forEach 跑完，后者捕获抛出并强制 _expanded/cover 落位。
-//   - NotificationMessage.close()：折叠组的每消息 close 处理会把"关一张"升级成"关整组"
-//     （messageList.js:1107），原生一个源≈一张卡时看不见，合并后代价放大；这里仅对本扩展
-//     自建源 + 折叠态，改为只关这一张（直接跑 close 的默认处理器 on_close）。
+// UI 兜底在 uiWorkarounds.js：GNOME 50 原生 messageList.js 有三处会把 N 卡合并组坑到的
+// 行为（折叠竞态 ×2、关一张升级成关整组）。取不到 messageList.js 只丢兜底、分组照常；
+// 上游修复后那个文件整块删除——所以它是独立的一个模块，不是这里的三段注释。
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { NotificationDestroyedReason } from 'resource:///org/gnome/shell/ui/messageTray.js';
 
-import { computeGroup, checkAttachPoints, checkUiGuardPoints } from './groupEngine.js';
+import { computeGroup, checkAttachPoints, normalizeIsolate } from './groupEngine.js';
+import * as UiWorkarounds from './uiWorkarounds.js';
+
+// 原生条数上限。schema 里 max-per-source 的上界必须等于它——超过 10 需要复制原生
+// addNotification（销毁旧条目 + 两处 connect + push + countUpdated），多一个脆弱补丁点。
+const NATIVE_MAX_PER_SOURCE = 10;
 
 const LOG_PREFIX = '[notification-grouper]';
 
@@ -48,26 +50,34 @@ export default class NotificationGrouperExtension extends Extension {
     _enabled = false;
     /** groupKey -> {source, hid, origOpen, patchedOpen}（共享 Source 缓存，destroy 自清） */
     _shared = new Map();
-    /** 本扩展创建的合并 Source 集合：UI 层据此判断"这张卡属于本扩展"（见 _attachUiGuards） */
+    /** 本扩展创建的合并 Source 集合：UI 兜底据此判断"这张卡属于本扩展" */
     _ownSources = new Set();
     /** 当前同步调用中的 computeGroup 结果与校验上下文（见文件头设计 1） */
     _pending = null;
     _orig = null;
     _appliedPatches = [];
-    /** UI 兜底的原始方法（仅当成功挂上时非 null，兼作"当前是否已挂"判据） */
-    _origUi = null;
-    _appliedGuards = [];
     _warned = new Set();
+    /** 设置缓存：热路径只读内存，绝不每个通知去 get_*（changed:: 时刷新） */
+    _settings = null;
+    /** changed:: 的 handler id，disable() 必须逐个 disconnect */
+    _settingsHids = [];
+    _groupingEnabled = true;
+    _uiGuardsEnabled = true;
+    _maxPerSource = NATIVE_MAX_PER_SOURCE;
+    _isolated = new Set();
 
     enable() {
         this._enabled = true;
-        this._shared = new Map();
-        this._ownSources = new Set();
+        // 只重置纯记账字段。**绝不**在这里重建 _shared / _ownSources：它们登记的是
+        // 上一轮已挂到别人对象上的补丁（自建源的 open() 覆盖、每源 destroy 连接）。
+        // 一重建就没人持有它们，disable() 便无从还原——补丁跨 disable 存活，
+        // 且 close 兜底会因 _ownSources 丢条目而无声失效。
+        // 与 _attach() 先 _detachPatches() 是同一条不变量：enable() 必须幂等。
         this._pending = null;
         this._appliedPatches = [];
-        this._appliedGuards = [];
-        this._origUi = null;
         this._warned = new Set();
+        // 先读设置再挂接：包装层与兜底挂载都依赖这些缓存值。
+        this._loadSettings();
         // Main.notificationDaemon 在 main.js 早于 ExtensionManager 创建
         // （notificationDaemon 构造器内同步建 _fdoNotificationDaemon），
         // 故 enable 时已就绪，无需异步导入。
@@ -81,7 +91,8 @@ export default class NotificationGrouperExtension extends Extension {
     disable() {
         this._enabled = false;
         this._detachPatches();
-        this._detachUiGuards();
+        const restoredGuards = UiWorkarounds.detach();
+        this._teardownSettings();
         for (const [, rec] of this._shared) {
             try {
                 rec.source.disconnect(rec.hid);
@@ -95,14 +106,24 @@ export default class NotificationGrouperExtension extends Extension {
             } catch {
                 /* source already disposed */
             }
+            // 本扩展自建的源不得活过 disable()。它持有一个 Gio.DBus.watch_name 订阅和
+            // 一个 NotificationPolicy，两者只在 Source.destroy() 里释放
+            // （messageTray.js:597-609：policy.destroy() + run_dispose()）；更关键的是
+            // 还原成原生 open() 之后，原生那方法的第二步 destroyNonResidentNotifications()
+            // 会重新作用在一个多卡源上，"点一张卡清掉整组"于是回到禁用之后。
+            // 到这里 rec 仍在表里，说明该源没被销毁过（销毁会经 rec.hid 自清这条记录），
+            // 所以不存在二次 destroy。
+            try {
+                rec.source.destroy();
+            } catch {
+                /* source already disposed */
+            }
         }
         this._shared.clear();
         this._ownSources.clear();
         this._pending = null;
         const restored = this._appliedPatches;
-        const restoredGuards = this._appliedGuards;
         this._appliedPatches = [];
-        this._appliedGuards = [];
         log(`${LOG_PREFIX} disabled, restored patches: ` +
             `${restored.length > 0 ? restored.join(', ') : '(none were applied)'}` +
             `, guards: ${restoredGuards.length > 0 ? restoredGuards.join(', ') : '(none)'}`);
@@ -131,168 +152,93 @@ export default class NotificationGrouperExtension extends Extension {
         this._orig = null;
     }
 
-    // ---- 原生 messageList 缺陷兜底 ----
+    // ---- 设置 ----
     //
-    // 这不是分组逻辑，而是替 GNOME 50 的 UI 缺陷擦屁股，因此与上面的两个补丁点
-    // 完全独立：拿不到 messageList.js 就只丢兜底，分组照常。
-    //
-    // 缺陷链（均已核对 native 源码行号）：
-    //   _removeNotification  :1152 取 item = message.get_parent()，:1161 立刻用
-    //                          item.layout_manager，而 _notificationToMessage.delete()
-    //                          在动画 onComplete 里（:1170）-> :1161 一抛，脏条目
-    //                          就永久留在 Map 里。
-    //   collapse()           :992 forEach 里对脏条目调 unexpand -> Message.unexpand
-    //                          :646 的 ease_property('@layout.expansion') 需要
-    //                          layout manager，取不到即 TypeError。
-    //   collapse()           :998/:1000 的 _expanded=false / cover.show() 排在那行
-    //                          之后且无 try/finally -> 状态永久停在半折叠，
-    //                          此后每次点击都被 :1114 的 if (!this.expanded) 吞掉，
-    //                          用户看到的是"通知栏卡住、点什么都没反应"。
-    //
-    // 第二处（同一 section，机制不同）：折叠组里关一张卡会被 :1107 的 stop_emission +
-    //   group.close() 升级成关整组。原生一个源≈一张卡时看不见；合并把一组变 N 张后，
-    //   代价被放大。兜底只对本扩展自建源 + 折叠态改为只关这一张（见 _attachUiGuards）。
+    // schema 随扩展目录走（schemas/ + metadata 的 settings-schema；shell 侧实现在
+    // extensions/sharedInternals.js:92，50 起不再自动编译 schema，所以 gschemas.compiled
+    // 必须与 .xml 同笔提交）。职责只有两条：读一次缓存进内存（热路径每条通知读缓存，
+    // 绝不做 IO），changed:: 时刷新。handler id 全部记进 _settingsHids，disable() 逐个
+    // disconnect —— 与补丁同一条规矩：登记了就必须有路径撤销它。
+    // 日志只在两个开关上各一行（那是用户动作，不是通知）；上限拖动会连发，故意不打。
 
-    /**
-     * 还原 UI 兜底。可安全重复调用；_origUi 非 null 即"当前已挂"的唯一判据。
-     */
-    _detachUiGuards() {
-        const o = this._origUi;
-        if (!o)
+    _loadSettings() {
+        const s = this.getSettings();
+        this._settings = s;
+        this._readSettings();
+        this._settingsHids = [
+            s.connect('changed::grouping-enabled', () => {
+                this._groupingEnabled = s.get_boolean('grouping-enabled');
+                log(`${LOG_PREFIX} grouping ${this._groupingEnabled ? 'on' : 'off'}`);
+            }),
+            s.connect('changed::ui-guards', () => {
+                this._uiGuardsEnabled = s.get_boolean('ui-guards');
+                log(`${LOG_PREFIX} UI guards ${this._uiGuardsEnabled ? 'on' : 'off'}`);
+                this._mountUiGuards();
+            }),
+            s.connect('changed::max-per-source', () => {
+                this._maxPerSource = s.get_int('max-per-source');
+                // 没有"下一条"要塞，所以现存堆叠削到上限本身（不是 cap-1）
+                for (const [, rec] of this._shared)
+                    this._evictTo(rec.source, this._maxPerSource);
+            }),
+            s.connect('changed::isolate-apps', () => this._readSettings()),
+        ];
+    }
+
+    _readSettings() {
+        const s = this._settings;
+        this._groupingEnabled = s.get_boolean('grouping-enabled');
+        this._uiGuardsEnabled = s.get_boolean('ui-guards');
+        this._maxPerSource = s.get_int('max-per-source');
+        this._isolated = normalizeIsolate(s.get_strv('isolate-apps'));
+    }
+
+    _teardownSettings() {
+        const s = this._settings;
+        if (!s)
             return;
-        try {
-            o.Message.prototype.unexpand = o.unexpand;
-        } catch {
-            /* best effort */
-        }
-        try {
-            o.Group.prototype.collapse = o.collapse;
-        } catch {
-            /* best effort */
-        }
-        try {
-            o.NotificationMessage.prototype.close = o.notifClose;
-        } catch {
-            /* best effort */
-        }
-        this._origUi = null;
+        for (const id of this._settingsHids)
+            s.disconnect(id);
+        this._settingsHids = [];
+        this._settings = null;
     }
 
     /**
-     * 挂 UI 兜底。用动态 import：上游一旦改名/删文件，静态 import 会让整个扩展
-     * 进 ERROR 态、连分组都不再工作，而那比"没有兜底"糟得多。
+     * 镜像原生 messageTray.js:577-580 的削位语义：原生在 push 之前
+     * `while (length >= MAX) destroy(oldest)`，于是可见总数恰好是 MAX。
+     * native push 之前调用要传 cap-1，事后修剪传 cap。
+     * reason 必须是 EXPIRED：FDO 侧按它决定发给应用的是 NotificationClosed(EXPIRED)
+     * 还是 (DISMISSED)（notificationDaemon.js:178-195），传错等于替用户"手动关闭"了它。
+     * cap == NATIVE_MAX_PER_SOURCE 时循环条件与原生等价，不必特判。
      */
-    async _attachUiGuards() {
-        this._detachUiGuards();
-
-        let mod = null;
-        let detail = '';
-        try {
-            mod = await import('resource:///org/gnome/shell/ui/messageList.js');
-        } catch (e) {
-            detail = e && e.message ? e.message : String(e);
+    _evictTo(source, keep) {
+        while (source.notifications.length > keep) {
+            const [oldest] = source.notifications;
+            oldest.destroy(NotificationDestroyedReason.EXPIRED);
         }
+    }
 
-        // 动态导入期间可能已经 disable：此时挂上去就再也无人还原了。
-        if (!this._enabled)
+    /**
+     * 按开关挂/撤三处 UI 兜底。attach() 自己先 detach，所以来回拨不叠层（与 enable()
+     * 的幂等同一条不变量）。不 await：enable() 必须保持同步，与 _pending 交接假设一致。
+     */
+    _mountUiGuards() {
+        if (!this._uiGuardsEnabled) {
+            UiWorkarounds.detach();
             return;
-
-        const Message = mod ? mod.Message ?? null : null;
-        const Group = mod ? mod.NotificationMessageGroup ?? null : null;
-        const NotificationMessage = mod ? mod.NotificationMessage ?? null : null;
-        const check = checkUiGuardPoints({
-            moduleLoaded: !!mod,
-            detail,
-            hasMessage: !!Message,
-            hasGroup: !!Group,
-            hasNotifMessage: !!NotificationMessage,
-            hasUnexpand: !!(Message && typeof Message.prototype.unexpand === 'function'),
-            hasCollapse: !!(Group && typeof Group.prototype.collapse === 'function'),
-            hasNotifClose: !!(NotificationMessage &&
-                typeof NotificationMessage.prototype.close === 'function'),
+        }
+        UiWorkarounds.attach({
+            ownsSource: src => this._ownSources.has(src),
+            log: m => log(`${LOG_PREFIX} ${m}`),
+            onError: (e, m) => logError(e, `${LOG_PREFIX} ${m}`),
+            // 动态导入期间可能已 disable，或用户已把兜底开关拨掉：那时挂上去就无人还原。
+            alive: () => this._enabled && this._uiGuardsEnabled,
+        }).then(guards => {
+            if (guards.length > 0)
+                log(`${LOG_PREFIX} UI guards attached: ${guards.join(', ')}`);
+        }).catch(e => {
+            logError(e, `${LOG_PREFIX} UI guards attach failed`);
         });
-        if (!check.apply) {
-            this._appliedGuards = [];
-            log(`${LOG_PREFIX} UI guards degraded: ${check.warnings.join('; ')}`);
-            return;
-        }
-
-        this._origUi = {
-            Message,
-            Group,
-            NotificationMessage,
-            unexpand: Message.prototype.unexpand,
-            collapse: Group.prototype.collapse,
-            notifClose: NotificationMessage.prototype.close,
-        };
-
-        const origUnexpand = this._origUi.unexpand;
-        Message.prototype.unexpand = function (animate) {
-            // actor 已从容器摘下时没有 layout manager，动画无从谈起；直接把终态
-            // 落位并返回，让 collapse() 的 forEach 能跑完剩下的消息（否则一条脏
-            // 消息会连带让它后面的消息全部留在展开态）。
-            let hasLayout = false;
-            try {
-                hasLayout = !!this._bodyBin && this._bodyBin.get_layout_manager() !== null;
-            } catch {
-                hasLayout = false;
-            }
-            if (!hasLayout) {
-                try {
-                    this._actionBin?.hide();
-                    this.expanded = false;
-                } catch {
-                    /* actor already disposed */
-                }
-                return;
-            }
-            return origUnexpand.call(this, animate);
-        };
-
-        const origCollapse = this._origUi.collapse;
-        Group.prototype.collapse = async function () {
-            try {
-                return await origCollapse.call(this);
-            } catch (e) {
-                logError(e, `${LOG_PREFIX} NotificationMessageGroup.collapse() threw`);
-                // 只补状态落位，不改语义：半折叠态会让之后每次点击都被吞掉。
-                try {
-                    this._expanded = false;
-                    this.notify('expanded');
-                    this._cover?.show();
-                } catch {
-                    /* group already disposed */
-                }
-            }
-        };
-
-        // 第三处兜底：折叠组里点一张卡的 ×，原生会把 close 升级成"关整组"
-        // （messageList.js:1107 先 stop_emission 再 group.close()）。原生一个源≈
-        // 一张卡，代价看不见；合并让一组变 N 张，"关整组"的代价随之放大。这里只在
-        // **本扩展创建的合并源**、且组处于折叠态时，改为只关这一张：直接跑 close
-        // 信号的默认处理器 on_close()（GJS 按 on_<signal> 自动接线，实测确认），
-        // 跳过派发，组处理器就不会把这次 close 升级成整组关闭。原生源、展开态、
-        // 单卡组一律走原生路径（单卡组按 :952 的 getter 视为已展开）。
-        const ownSources = this._ownSources;
-        const origNotifClose = this._origUi.notifClose;
-        NotificationMessage.prototype.close = function () {
-            try {
-                const item = this.get_parent();
-                const group = item ? item.get_parent() : null;
-                if (group instanceof Group && !group.expanded &&
-                    ownSources.has(group.source) &&
-                    typeof this.on_close === 'function') {
-                    this.on_close();
-                    return;
-                }
-            } catch {
-                /* 判定失败就落回原生，绝不吞掉一次关闭 */
-            }
-            return origNotifClose.call(this);
-        };
-
-        this._appliedGuards = check.guards;
-        log(`${LOG_PREFIX} UI guards attached: ${this._appliedGuards.join(', ')}`);
     }
 
     // ---- 挂接 FDO 实例 ----
@@ -345,6 +291,8 @@ export default class NotificationGrouperExtension extends Extension {
             const res = computeGroup({
                 appName: params[0],
                 desktopEntry: read('desktop-entry'),
+                enabled: self._groupingEnabled,
+                isolated: self._isolated,
             });
             // _pending 对所有调用都置位：Shell 认识 replaces_id 时走复用分支
             // （不经过 _getSource，暂存无影响）；Shell 不认识（stale id）则落
@@ -387,8 +335,11 @@ export default class NotificationGrouperExtension extends Extension {
             }
             const key = pend.res.groupKey;
             const rec = self._shared.get(key);
-            if (rec)
+            if (rec) {
+                // 复用已有源：原生马上就要往它 push 这一条，先按本扩展的上限削位
+                self._evictTo(rec.source, self._maxPerSource - 1);
                 return rec.source;
+            }
             const source = self._orig.getSource.call(this, sender, pid, appName);
 
             // 第三挂载点（与分组补丁相互独立、独立降级）：合并源没有 app（本路径
@@ -424,6 +375,7 @@ export default class NotificationGrouperExtension extends Extension {
                 }
             });
             self._shared.set(key, { source, hid, origOpen, patchedOpen });
+            self._evictTo(source, self._maxPerSource - 1);
             return source;
         };
 
@@ -431,10 +383,7 @@ export default class NotificationGrouperExtension extends Extension {
         log(`${LOG_PREFIX} enabled, attached patches: ${this._appliedPatches.join(', ')}`);
 
         // 分组已挂上才谈兜底（兜底独立降级，但不会在惰性实例上单独存在）。
-        // 不 await：enable() 必须保持同步，与 _pending 的同步交接假设一致。
-        this._attachUiGuards().catch(e => {
-            logError(e, `${LOG_PREFIX} UI guards attach failed`);
-        });
+        this._mountUiGuards();
     }
 
     _warnOnce(key, msg) {

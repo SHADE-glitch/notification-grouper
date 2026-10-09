@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <!-- 零配置默认：四个键全部取"扩展当前行为"的值，装上即可用，不动任何键。
+       max-per-source 的上界 10 不是随意数字——那是原生 messageTray.js 的
+       MAX_NOTIFICATIONS_PER_SOURCE；本扩展只允许在原生之下收紧，不提供放宽
+       （放宽要复制原生 addNotification，多一个脆弱补丁点，不划算）。 -->
+  <schema id="org.gnome.shell.extensions.notification-grouper"
+          path="/org/gnome/shell/extensions/notification-grouper/">
+
+    <key name="grouping-enabled" type="b">
+      <default>true</default>
+      <summary>Group notifications by the sending app</summary>
+      <description>When off, every sending process gets its own stack, exactly as GNOME does without this extension.</description>
+    </key>
+
+    <key name="max-per-source" type="i">
+      <range min="1" max="10"/>
+      <default>10</default>
+      <summary>Cards kept per stack</summary>
+      <description>How many notifications one merged stack keeps before the oldest is dropped. 10 is the GNOME limit; only lower values can be chosen.</description>
+    </key>
+
+    <key name="ui-guards" type="b">
+      <default>true</default>
+      <summary>Work around two GNOME notification-list defects</summary>
+      <description>Keeps a collapsed stack from freezing the whole list, and keeps closing one card from closing the stack. Turn off only to compare with unpatched GNOME; the guards are meant to be removed once GNOME fixes the defects.</description>
+    </key>
+
+    <key name="isolate-apps" type="as">
+      <default>[]</default>
+      <summary>Apps that keep their own stacks</summary>
+      <description>App names listed here are never merged, each sender process stays separate. Names are matched after trimming and lower-casing, and a trailing .desktop is ignored.</description>
+    </key>
+
+  </schema>
+</schemalist>
