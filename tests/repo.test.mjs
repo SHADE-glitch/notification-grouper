@@ -15,16 +15,21 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { REQUIRED_PATCHES, REQUIRED_UI_GUARDS } from "../groupEngine.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * Every file in the working tree, skipping VCS and install noise. This is a
- * directory walk rather than `git ls-files` on purpose: the guards must also see
- * a brand-new harness script one second before it is committed.
+ * Every file in the working tree that git would be willing to commit, skipping VCS
+ * and install noise. This is a directory walk rather than `git ls-files` on purpose:
+ * the guards must also see a brand-new harness script one second before it is
+ * committed. Ignored paths are then subtracted with git's own rule, because
+ * `reports/` (phase evidence: journal lines, real application names) is deliberately
+ * invisible to the repository but plainly visible to readdirSync.
  */
 function listFiles() {
     const out = [];
@@ -44,7 +49,16 @@ function listFiles() {
     return out.sort();
 }
 
-const FILES = listFiles();
+function ignoredFiles() {
+    // One git call, not one per file. If git is unavailable this throws and the
+    // suite fails loudly — a guard that silently skips is a guard that never fired.
+    return new Set(execFileSync(
+        "git", ["ls-files", "--others", "--ignored", "--exclude-standard"],
+        { cwd: REPO, encoding: "utf8" }).split("\n").filter(Boolean));
+}
+
+const IGNORED = ignoredFiles();
+const FILES = listFiles().filter(f => !IGNORED.has(f));
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), "utf8");
 
 describe("documentation conventions hold", () => {
@@ -76,5 +90,115 @@ describe("documentation conventions hold", () => {
         // committed doc read as unfinished work and never get cleaned up.
         for (const f of FILES.filter(x => x.endsWith(".md")))
             assert.ok(!/^\s*- \[[ xX]\]/m.test(read(f)), `${f} contains a task checkbox`);
+    });
+});
+
+describe("shipped code keeps the promises its comments make", () => {
+    // Each guard below checks a claim that was, until now, only a comment in the
+    // source. A comment that rots is worse than no comment: the next reader trusts
+    // it. None of these can be caught at runtime, which is exactly why they live here.
+    const SHIPPED = FILES.filter(f => /^[^/]+\.js$/.test(f));
+
+    it("no timer or repeating source in the shipped code", () => {
+        // The cost model is "structurally zero idle cost — the extension only runs
+        // when a notification arrives". One timeout_add would break that and every
+        // existing runtime assertion would still pass.
+        const re = /timeout_add|idle_add|TickScheduler|setTimeout|setInterval/;
+        for (const f of SHIPPED)
+            assert.ok(!re.test(read(f)),
+                `${f} arms a timer or repeating source; the zero-idle-cost claim is now false`);
+        assert.ok(SHIPPED.length >= 1, "no shipped sources found to check");
+    });
+
+    it("groupEngine.js stays free of gi:// and resource:// so Node can load it", () => {
+        // It is the only module this repo can unit-test without a shell. Adding
+        // either scheme here silently deletes L0 coverage rather than failing.
+        const src = read("groupEngine.js");
+        for (const scheme of ["gi://", "resource://"])
+            assert.ok(!src.includes(scheme),
+                `groupEngine.js now references ${scheme} — Node cannot import it, so npm test proves nothing`);
+    });
+
+    it("every declared patch point is still named in the module that owns it", () => {
+        // checkAttachPoints() and checkUiGuardPoints() are tested against hand-written
+        // fake objects, so a rename left the declared lists green while the extension
+        // degraded to inert in the field. The names must exist in the real code — and
+        // in the module that is supposed to own them, which is what pins the split:
+        // grouping patches in extension.js, upstream workarounds in uiWorkarounds.js.
+        const HOME = {
+            daemon: "extension.js",
+            guard: "uiWorkarounds.js",
+        };
+        const ext = read(HOME.daemon);
+        const uiw = read(HOME.guard);
+        for (const p of REQUIRED_PATCHES)
+            assert.ok(ext.includes(`fdo.${p}`),
+                `${p} is declared required, but ${HOME.daemon} no longer mentions fdo.${p}`);
+        for (const g of REQUIRED_UI_GUARDS) {
+            const method = g.split(".")[1];
+            assert.ok(uiw.includes(`prototype.${method}`),
+                `${g} is declared required, but ${HOME.guard} no longer mentions prototype.${method}`);
+        }
+        // The guards are a workaround for an upstream defect: they must stay together in
+        // one deletable unit. If one crept back into extension.js, the "rm the file"
+        // deletion step would silently leave a patch behind.
+        for (const method of REQUIRED_UI_GUARDS.map(g => `prototype.${g.split(".")[1]}`))
+            assert.ok(!ext.includes(method),
+                `${HOME.daemon} patches a prototype (${method}) — the workaround unit leaked`);
+    });
+
+    it("no Gtk/Gdk import in the shell process (prefs.js is the only place allowed)", () => {
+        // extension.js / uiWorkarounds.js run inside gnome-shell, which has no GTK
+        // display; importing Gtk there is a crash at load, not a style issue.
+        // prefs.js runs in its own GTK4 process and MUST import Adw/Gtk — so the guard
+        // names the shell-side files instead of sweeping the whole tree.
+        const SHELL_SIDE = ["extension.js", "uiWorkarounds.js", "groupEngine.js"];
+        for (const f of SHELL_SIDE) {
+            const src = read(f);
+            for (const ns of ["gi://Gtk", "gi://Gdk", "gi://Adw"])
+                assert.ok(!src.includes(ns),
+                    `${f} imports ${ns} — that is the prefs process's toolkit, and it breaks shell load`);
+        }
+        // and the prefs file really does have them, otherwise this pair of rules is
+        // vacuous (a renamed prefs.js would silent the whole thing)
+        const prefs = read("prefs.js");
+        assert.match(prefs, /gi:\/\/Adw/, "prefs.js must import Adw; the split above assumes it");
+    });
+
+    it("reports/ stays untracked — phase evidence must not be pushed", () => {
+        // The repository is public while reports/ quotes journal lines and real
+        // application names. .gitignore carries the rule; git proves it holds.
+        assert.match(read(".gitignore"), /^reports\/?$/m,
+            ".gitignore lost its reports/ entry — local evidence would become publishable");
+        const tracked = execFileSync("git", ["ls-files", "--", "reports"],
+            { cwd: REPO, encoding: "utf8" }).trim();
+        assert.equal(tracked, "",
+            `these files under reports/ are tracked and would be pushed: ${tracked}`);
+    });
+
+    it("records carry no real application name", () => {
+        // AGENTS.md: CHANGELOG Symptom lines and fixture provenance must not name a
+        // desktop application — the shipped engine contains no app name at all, and a
+        // public record that does names the author's toolchain. The fixtures used to
+        // break this (a captured title read "<an IDE> 任务完成"), and nothing checked it
+        // because the existing doc scanner only walks *.md. So this sweep covers the
+        // JSON fixtures too.
+        // The list is this checker's own vocabulary: names that were actually captured
+        // here. It is the single place a name may appear, hence the self-exemption.
+        const NAMES = ["codebuddy", "codenotify", "code-notify", "trae", "opencode"];
+        const RECORDS = FILES.filter(f =>
+            f.endsWith(".md") || f.startsWith("tests/fixtures/") ||
+            /^tests\/[^/]+\.(mjs|js)$/.test(f));
+        for (const f of RECORDS) {
+            if (f === "tests/repo.test.mjs")
+                continue;
+            const low = read(f).toLowerCase();
+            for (const n of NAMES)
+                assert.ok(!low.includes(n),
+                    `${f} names a real application ("${n}"); use a generic placeholder and keep the evidence in the pid/hints`);
+        }
+        // the guard must have something to guard: an empty RECORDS set would be a fake green
+        assert.ok(RECORDS.length >= 4,
+            `only ${RECORDS.length} record files found — the sweep lost its target set`);
     });
 });

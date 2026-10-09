@@ -1,12 +1,12 @@
 {
   "_provenance": "真实抓包（2026-09-24, dbus-monitor）：一个 CLI 通知工具以显式 --app-name 发送的自检通知，代表\"具名但无 .desktop\"这一类来源。同一 NOTIFY 在总线出现两次（通知服务进程 -> shell 进程）。",
-  "_scrub": "body 已擦除；title 为该工具自带的测试字符串无隐私；sender 总线名占位化；pid 保留。",
+  "_scrub": "body 已擦除；app_name 与 title 里的真实工具名已替换为通用占位（records 里不得出现具体应用名，见 AGENTS.md），hints 结构与 pid 保持抓包原样；sender 总线名占位化。",
   "hop1_app_to_daemon": {
     "sender": ":1.NNN",
-    "app_name": "Code-Notify",
+    "app_name": "Example-Notifier",
     "replaces_id": 0,
     "app_icon": "",
-    "title": "Code-Notify Test",
+    "title": "Self-test",
     "body": "",
     "hints": {
       "image-path": "dialog-information",
@@ -20,8 +20,8 @@
     "x-shell-sender": ":1.NNN"
   },
   "_engine_input": {
-    "appName": "Code-Notify",
-    "title": "Code-Notify Test",
+    "appName": "Example-Notifier",
+    "title": "Self-test",
     "senderPid": 28229,
     "sender": ":1.NNN"
   }

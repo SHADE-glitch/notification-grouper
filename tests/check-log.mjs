@@ -23,7 +23,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHANGELOG = 'CHANGELOG.md';
 
 /** Code paths whose changes must be recorded. Declared, never inferred. */
-const CODE_PATHS = ['extension.js', 'groupEngine.js'];
+const CODE_PATHS = ['extension.js', 'groupEngine.js', 'uiWorkarounds.js', 'prefs.js'];
 const KINDS = ['fix', 'perf', 'taste', 'guard', 'revert', 'chore'];
 const FIELDS = ['Symptom', 'Change', 'Evidence', 'Cost', 'Commit'];
 

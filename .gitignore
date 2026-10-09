@@ -7,3 +7,9 @@
 
 # Dependencies
 node_modules/
+
+# Phase evidence for this maintenance pass: PROFILE/AUDIT/PLAN/VERIFY/STATE.
+# This repo is public and these files may quote raw journal lines, application
+# names or resolved temp paths, so they stay local-only. Nothing under reports/
+# may be tracked.
+reports/
