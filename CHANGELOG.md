@@ -233,10 +233,11 @@ Change   削位改到原生 push **之后**：`_getSourceForPidAndName` 不再�
          `_pending.servedSource`；`NotifyAsync` 包裹层在 `_orig.notify.call` 返回后
          （该路径同步，通知此时已进源）削到 cap。可见条数仍是精确的 cap，而 keep 恒 >= 1，
          两处调用点（push 后与设置调小时）都不可能把源清空
-Evidence L1 40/40，日志里 `already disposed` 计数 0；新增端点与 reason 断言
+Evidence L1 全绿（断言条数由 harness 自己打印，本文件不抄），日志里 `already disposed`
+         计数 0；新增端点与 reason 断言
          （cap=1 留一张且仍是一个源、cap=10 与原生上界一致、被削掉的卡片 reason 是
-         EXPIRED(1) 而不是 DISMISSED(2)）；`npm run verify:provoke` 7 个变异全部打出各自
-         的红灯，包含新增的 post-push-trim-removed。
+         EXPIRED(1) 而不是 DISMISSED(2)）；`npm run verify:provoke` 当时全部变异各自打出
+         红灯，包含新增的 post-push-trim-removed。
          过程记录：第一轮修复只做了一半（加了 push 后的削位却没删 push 前的削位，
          `servedSource` 从未被赋值），正是新加的那条变异打不红暴露了它——
          断言对着一条空转的代码路径当然恒绿。L2 未验证（当前会话加载的仍是修复前的代码）
@@ -244,3 +245,35 @@ Cost     回到 push 前削位就只在 cap=1 时复发，且只在真实触发�
          是典型的"默认值看不出问题"的缺陷；探针侧同时改掉了事后读取已销毁包装的写法——
          那条 critical 本来是仪器自己造成的，它一度被当成产品缺陷的读数
 Commit   b09e179
+
+### D-017 · 2026-10-10 · guard · v9
+Symptom  D-016 记下"被削掉的卡片 reason 是 EXPIRED(1)"，但那条断言读的是 shell **进程内部**
+         的 destroy reason。发送方收到的是 FDO 的 `NotificationClosed` 广播，而总线不会把
+         广播信号送回给发送者——在 shell 进程里 subscribe 恒为空，所以"我们到底告诉了发送方
+         什么"此前没有任何门禁：`notificationDaemon.js:178-195` 那段映射若写错，L1 照样全绿。
+         实况侧两个仪器缺陷：`tests/smoke.sh` 用通用串 `already disposed` 判缺陷，真实会话里
+         一次 boot 实测 5 条命中全是 `St.Adjustment` / `Gjs_ui_layout_UiActor` 在换壳那一秒
+         的噪声，**这条判据会诬告**；而它缺一条更基本的前提——本轮 journal 里到底有没有 enable
+         行（改了 JS 却没重新登录时扩展照样 ACTIVE，缺这一条就等于在旧代码上给新代码打勾）
+Change   harness 在自己那条私有会话总线上起 `dbus-monitor`（`member=NotificationClosed`），
+         从削位阶段之前开始监听，断言"抓到 >=1 条且 reason 全为 1"；FAIL 文案打印条数，让
+         "仪器没接上（0 条）"与"产品报了别的 reason"一眼可分；监听输出纳入陈旧文件清理。
+         变异台第 8 条 `evict-reason-dismissed` 把削位用的 EXPIRED 换成 DISMISSED，要求把这条
+         新断言打红；脚本头注释按真实覆盖面改写（它守的不只四个设置键，也守削位时机与 reason）。
+         smoke.sh：disposed 判据收窄到类名 `notificationDaemon_FdoNotificationDaemonSource`，
+         别的类只报条数不参与判定；加"本轮有没有 enable 行"；补 `max-per-source=1` 的实况项，
+         以及"为什么剩下几条必须由你的眼睛看"。顺手把 D-016 里手抄的 `L1 40/40` 改掉——
+         本文件头就写着聚合数由产出它的命令打印，而它已经漂了一版
+Evidence L1 全绿（条数由 harness 自己打印），日志 `Gjs-CRITICAL` 0 条；`npm run verify:provoke`
+         当时每条变异各自打红，含新增这条；`verify:ui-guard` 两个方向给出**相反**结论。
+         L2 新事实：真实会话的 gnome-shell 起动于 11:19，`extension.js` 落盘于 08:13，所以实况
+         加载的确实是修复后的代码（判据是 `ps -o lstart` 对比文件 mtime，**不是**
+         `gnome-extensions info`——那个读的是磁盘 metadata，不反映已加载的类）；把上限设成 1 后
+         journal 里 `FdoNotificationDaemonSource … already disposed` 计数 0。
+         没有据此宣布端到端在实况成立：同一次实况抓取到 3 条 `NotificationClosed` 全为 reason 1，
+         但普通超时的通知**自然过期时读数完全相同**，所以它无法归因于削位——reason 归因只有 L1
+         （`urgency=critical`，不会自然过期，唯一来源就是削位）证明过
+Cost     监听只活在这条私有总线里，进程随 harness 结束；今后若看到 0 条，先怀疑 `dbus-monitor`
+         不在 PATH 或总线没起来，而不是判产品红。通用 disposed 串留在判据里，就是留给下一个人
+         在换壳噪声里找不存在的缺陷
+Commit   59ec0aa

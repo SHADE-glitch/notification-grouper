@@ -312,10 +312,12 @@ GNOME 对比。
   `open()` 还原成原生版之后再留着它，就等于把本扩展要修的那个 bug 放回"禁用之后"。原本
   就在**原生栈**里的通知完全不受影响。想要温和一点就关**按发出应用分组**：不再有新通知并
   进来，已有的栈保持不动。
-- **这些被撤下的卡片发给发送方的 `NotificationClosed` reason 是 4（`undefined`）**，不是
-  "来源已关闭"。原生 `FdoNotificationDaemonSource.destroy()` 本身不接参数、`super.destroy()`
+- **因为"禁用"而退休的那些卡片，发给发送方的 `NotificationClosed` reason 是 4（`undefined`）**，
+  不是"来源已关闭"。原生 `FdoNotificationDaemonSource.destroy()` 本身不接参数、`super.destroy()`
   也不带 reason（`notificationDaemon.js:384-391`），reason 在映射之前就被丢掉了；要改只能
-  再 patch 第三个方法，为一条多数发送方并不关心的信号不值得。
+  再 patch 第三个方法，为一条多数发送方并不关心的信号不值得。**被每堆上限削掉的卡片不是这样**：
+  它们保持 `EXPIRED`，FDO 层把它报成 reason 1（`notificationDaemon.js:178-195`）——而且
+  headless harness 是在总线上用一个独立观察者断言这个读数的，不只是在 shell 进程里取值。
 - 扩展 UUID 是 `notification-grouper@local`。
 
 ### 排障

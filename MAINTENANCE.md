@@ -56,7 +56,7 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 | --- | --- | --- | --- |
 | L0 | `npm test`、`npm run check`、`npm run check:log` | 只有 Node | 纯函数行为、仓库级不变量、CHANGELOG 覆盖 |
 | L0.5 | `npm run check:prefs` | `gjs` + libadwaita 内省，不起 shell | `prefs.js` 用到的每个 Adw/Gtk 成员在本机存在，且被禁用的成员没被用 |
-| L1 | `npm run verify:headless`、`npm run verify:ui-guard`（两种 `EXPECT`）、`npm run verify:provoke` | 一次性 headless GNOME Shell（私有 D-Bus + `GSETTINGS_BACKEND=memory` + 私有 `XDG_DATA_HOME` + 独立 `--wayland-display`） | 补丁挂载与还原、合并语义、来源销毁、设置热应用、兜底是否真的拦住了原生缺陷 |
+| L1 | `npm run verify:headless`、`npm run verify:ui-guard`（两种 `EXPECT`）、`npm run verify:provoke` | 一次性 headless GNOME Shell（私有 D-Bus + `GSETTINGS_BACKEND=memory` + 私有 `XDG_DATA_HOME` + 独立 `--wayland-display`） | 补丁挂载与还原、合并语义、来源销毁、设置热应用、兜底是否真的拦住了原生缺陷、**削位告诉发送方的 reason 真的上了总线**（同总线另起 `dbus-monitor`） |
 | L2 | `tests/smoke.sh` 清单，由用户在真实会话跑 | 用户桌面 | 真实发送方（CLI hook / systemd / 带 `--app-name` 的工具）的行为、观感、深浅色、prefs 对话框实际渲染 |
 
 **L1 看不到什么**（写在这里是为了不要拿它当证据）：
@@ -71,6 +71,21 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 - 真实发送方的身份解析：headless 里所有通知都是 `notify-send` 这一类；能解析成 `Shell.App`
   的发送方根本不走被 patch 的那条路径。
 - 跨小版本兼容性（只能在目标版本上重跑 L1 才知道）。
+
+**L2 侧的三条仪器规矩**（每一条都对应一次真实的误读）：
+
+- **要看发送方收到什么，必须起独立监听进程。** `NotificationClosed` 是 shell 自己广播的，
+  而总线不会把广播信号送回给发送者，所以在 shell 进程里 `subscribe` 恒为空——那是一种
+  "仪器根本没接上、看起来却像产品没问题"的绿。headless harness 已内置 `dbus-monitor`。
+  另外：**在真实会话里抓到 reason 1 不能归因于削位**，普通超时的通知自然过期时读数完全相同；
+  归因只在 L1 成立，因为那里的通知是 `urgency=critical`（不会自己消失，唯一来源就是削位）。
+- **判断实况加载的是哪份代码，用起动时间对比 mtime**：
+  `ps -o lstart= -p $(pgrep -x gnome-shell)` 与 `date -r extension.js`。不要用
+  `gnome-extensions info`——它读的是磁盘 `metadata.json`，不反映已加载的类；disable/enable
+  也不会重载 ES 模块。
+- **通用串不能当产品判据。** `already disposed` 在 GNOME 里是通用串：实测一个 boot 有 5 条，
+  全是 `St.Adjustment` / `Gjs_ui_layout_UiActor` 在换壳那一秒的噪声。我们那个缺陷的特征串
+  带类名，判据必须写全 `notificationDaemon_FdoNotificationDaemonSource`（`smoke.sh` 已如此）。
 
 ## Shell 内部接口清单（50.1 实测，核对日期 2026-10-09）
 

@@ -150,6 +150,16 @@ facts are the thing that drifts.
   if a mutation survives, check whether another path already produces the same result before
   declaring the assertion vacuous — that has happened here and the correct answer was a
   different mutation, not a weakened assertion.
+- **Assert on the side the outside world sees.** When we trim a stack we set a
+  `NotificationDestroyedReason` *inside* the shell and the sender is told by a
+  `NotificationClosed` message on the bus; only the second is a promise to a user, and an
+  in-process reading stays green if the mapping in `notificationDaemon.js` is wrong. The bus
+  never delivers a broadcast back to its own sender, so subscribing from inside the shell is
+  empty **forever** — the harness starts a separate `dbus-monitor` on its private bus. A
+  capture count of 0 is an instrument failure, never a pass, so the FAIL text prints the
+  count. And attribute carefully: only the L1 notifications prove the trim produced that
+  reason, because they are `urgency=critical` and cannot expire on their own — in a real
+  session an expired notification reads identically.
 - **A restoration check compares identities, never a log line, a line number, or
   `hasOwnProperty`.** Assert `obj.method === theFunctionCapturedBeforeEnable`. Restoring an
   own property re-assigns the same function, so "own property is gone" reads as failure;
@@ -181,8 +191,9 @@ facts are the thing that drifts.
   runs it against a different tree, which is how the pre-change comparison is done.
 - `npm run verify:ui-guard` — provocation bench; `EXPECT=guarded`/`EXPECT=native` must give
   opposite verdicts, and both are asserted by exit code rather than by a human diff.
-- `npm run verify:provoke` — mutation bench for the settings surface; each mutation must turn
-  its named assertion red.
+- `npm run verify:provoke` — mutation bench. Its scope is "any gate that could stay green
+  while the implementation idles": the four settings keys, when the trim runs, and the reason
+  we hand the sender. Each mutation must turn its named assertion red.
 - `npm run bench` — engine throughput. It prints numbers and asserts nothing, so it is not in
   `npm test`; run it after touching `computeGroup()`, because grouping runs on the
   notification hot path and a regression there is user-visible as input lag.

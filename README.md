@@ -381,12 +381,15 @@ defects** switch turns them off at runtime if you want to compare against stock 
   re-create the bug this extension exists to fix. Nothing already sent to a *native* stack
   is affected. Turning **Group by app** off is the gentler option — it stops new
   notifications from merging and keeps existing stacks.
-- **Those retired cards reach the sender as `NotificationClosed` with reason 4
+- **Cards that *disabling* retires reach the sender as `NotificationClosed` with reason 4
   (`undefined`)**, not "source closed". Native
   `FdoNotificationDaemonSource.destroy()` takes no argument and calls `super.destroy()`
   without one (`notificationDaemon.js:384-391`), so the reason is dropped before it can be
   mapped; the only way to change it is to patch a third method, which is not worth a
-  signal most senders ignore.
+  signal most senders ignore. Cards removed by the **per-stack cap** are not like this: they
+  keep `EXPIRED`, which the FDO layer reports as reason 1
+  (`notificationDaemon.js:178-195`) — and the headless harness asserts that reading on the
+  bus, from a separate observer, not just as an in-process value.
 - The extension UUID is `notification-grouper@local`.
 
 ### Troubleshooting
