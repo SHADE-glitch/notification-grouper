@@ -1,6 +1,6 @@
 <p align="right"><a href="README.md"><b>English</b></a> | <a href="README.zh-CN.md">简体中文</a></p>
 
-# Notification Grouper
+# 🔔 Notification Grouper
 
 A GNOME Shell extension that folds notifications from the same sending
 application into a single stack, instead of one stack header per process.

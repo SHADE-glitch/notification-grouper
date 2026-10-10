@@ -1,6 +1,6 @@
 <p align="right"><a href="README.md">English</a> | <a href="README.zh-CN.md"><b>简体中文</b></a></p>
 
-# Notification Grouper
+# 🔔 Notification Grouper
 
 把同一个发送应用的通知折叠进单个堆叠源的 GNOME Shell 扩展，而不是每个进程一个栈头。
 
