@@ -2,6 +2,7 @@
   "name": "notification-grouper",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=20" },
   "scripts": {
     "test": "node tests/test-groupEngine.mjs && node tests/repo.test.mjs",
     "check": "node --check extension.js groupEngine.js uiWorkarounds.js prefs.js",
