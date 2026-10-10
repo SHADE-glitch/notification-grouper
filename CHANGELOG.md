@@ -434,3 +434,10 @@ Cost     The consequence of leaving it is "the first zip upload ships an extensi
          was moved to gitignore (regenerable, and must go through the gate again rather than
          trusting a cache), at the cost of running two extra commands before release
 Commit   6041f3c
+
+### D-019 · 2026-10-10 · guard · v9
+Symptom  `STANDARD.md` §7 (machine-wide) requires every `.gitignore` to carry at least the runtime ignore list `.venv/ venv/ __pycache__/ *.db *.db-wal *.db-shm .pytest_cache/ reports/`. This repo carried `reports/`, `node_modules/` and the `*.shell-extension.zip` rule, but none of the Python-tooling or database entries, so a stray `.venv/`, `__pycache__/` or `*.db` dropped beside the extension during testing would have shown up as untracked and been committable
+Change   Added the seven missing entries under a labeled block citing STANDARD §7. Every existing rule is left byte-identical: `node_modules/`, the `*.shell-extension.zip` build-artifact rule, and the `reports/` rule
+Evidence L0: `git check-ignore -v .venv/x __pycache__/x.py foo.db .pytest_cache/x` now names `.gitignore` for all four paths (before the change none resolved); `node tests/repo.test.mjs` 9/9; `npm run check:log` PASS
+Cost     The block is a rule, not a check — only `reports/` is pinned by `tests/repo.test.mjs`, so the full list can still drift. No `.venv` or `*.db` is produced by this extension's tooling, so the entries are prophylactic
+Commit   79adcd3
