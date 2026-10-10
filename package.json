@@ -10,6 +10,7 @@
     "verify:headless": "tests/headless-verify.sh",
     "verify:ui-guard": "tests/headless-ui-guard.sh",
     "verify:provoke": "tests/provoke-settings.sh",
+    "pack": "tests/pack.sh",
     "check:log": "node tests/check-log.mjs"
   }
 }

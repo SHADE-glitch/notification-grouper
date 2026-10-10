@@ -165,6 +165,41 @@ describe("shipped code keeps the promises its comments make", () => {
         assert.match(prefs, /gi:\/\/Adw/, "prefs.js must import Adw; the split above assumes it");
     });
 
+    it("the pack manifest covers every module the shipped code imports", () => {
+        // `gnome-extensions pack` on GNOME 50 ships a fixed filename whitelist and
+        // exits 0 whether or not the rest made it in. Every module this repo split out
+        // of extension.js therefore has to be declared in tests/pack.sh, or the
+        // installable zip contains an extension that cannot even load — measured: the
+        // undeclared bundle ran 2/41 in tests/headless-verify.sh. The packer also ships
+        // schemas/<id>.gschema.xml but never gschemas.compiled, which is the file the
+        // runtime actually opens (new_from_directory() throws without it).
+        const pack = read("tests/pack.sh");
+        const declared = (name) => {
+            const m = pack.match(new RegExp(`^${name}="([^"]*)"$`, "m"));
+            assert.ok(m, `tests/pack.sh must declare ${name}=...`);
+            return new Set(m[1].split(/\s+/).filter(Boolean));
+        };
+        const extras = declared("EXTRA_SOURCES");
+        const extraFiles = declared("EXTRA_FILES");
+        const AUTO = new Set(["extension.js", "prefs.js", "metadata.json",
+                              "stylesheet.css", "stylesheet-dark.css", "stylesheet-light.css"]);
+
+        const imported = new Set();
+        for (const f of SHIPPED)
+            for (const m of read(f).matchAll(/from\s+['"]\.\/([^'"]+\.js)['"]/g))
+                imported.add(m[1]);
+        // anti-vacuity: if the split is ever collapsed back into one file, this check
+        // has no subject and must say so rather than pass silently
+        assert.ok(imported.size >= 2,
+            `only ${imported.size} local module(s) imported by shipped code — the import scan lost its target set`);
+        for (const mod of imported)
+            assert.ok(AUTO.has(mod) || extras.has(mod),
+                `${mod} is imported by shipped code but declared nowhere in tests/pack.sh — the bundle would load inert`);
+
+        assert.ok(extraFiles.has("schemas/gschemas.compiled"),
+            "schemas/gschemas.compiled must be an EXTRA_FILE: the packer only ships the .xml, and the runtime needs the compiled one");
+    });
+
     it("reports/ stays untracked — phase evidence must not be pushed", () => {
         // The repository is public while reports/ quotes journal lines and real
         // application names. .gitignore carries the rule; git proves it holds.

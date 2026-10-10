@@ -8,6 +8,11 @@
 # Dependencies
 node_modules/
 
+# Build artifact: `npm run pack` writes the installable bundle into the repo root.
+# It is derived entirely from tracked files, and its contents must be re-verified by
+# re-running the gate rather than trusted from a cached copy.
+*.shell-extension.zip
+
 # Phase evidence for this maintenance pass: PROFILE/AUDIT/PLAN/VERIFY/STATE.
 # This repo is public and these files may quote raw journal lines, application
 # names or resolved temp paths, so they stay local-only. Nothing under reports/
