@@ -269,8 +269,8 @@ facts are the thing that drifts.
   code changes (`npm test` asserts the section count and the language switcher). User-facing
   strings and docs are English-first in the public places (repo About, settings labels);
   Chinese where the repo already pairs them.
-- Commit code first, docs in a separate commit. Messages use **Chinese subjects with English
-  conventional-commit prefixes** (`fix:` / `perf:` / `test:` / `docs:` / `chore:`).
+- Commit code first, docs in a separate commit. Messages are **English throughout** — an English
+  subject with an English conventional-commit prefix (`fix:` / `perf:` / `test:` / `docs:` / `chore:`).
 - **Stage explicit paths.** Never `git add -A` or a whole directory: that sweeps the
   maintainer's own unrelated pending deletions into your commit. Check `git status` after
   staging, and re-read the commit afterwards.
