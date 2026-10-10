@@ -34,6 +34,10 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 - **`disable()` 必须能撤销 `enable()` 做过的每一件事**，含四个 `changed::` handler 与自建
   合并源本身。守手：L1 `disable disconnects settings`、`disable drops the settings object`、
   `merged source destroyed on disable`、`native pid cache self-cleaned`。
+- **削位绝不得把合并源清空。** 原生在源的最后一条通知被销毁时会 `this.destroy()` 整个源
+  （`messageTray.js:569-570`），所以"push 之前先削到 cap-1"在 `cap=1` 时会让紧接着的原生
+  `addNotification` 操作已 dispose 的对象。守手：L1 `cap=1 keeps one card, still one source`
+  与 `no repeated extension.js frame`（后者的红正是那两条 Gjs-CRITICAL 的栈）。
 - **零 timer、零周期任务**：结构性零空闲开销是这个扩展的成本模型。守手：L0
   `no timer or repeating source in the shipped code`（grep 全出厂 JS）。
 - **热路径不做 IO、不用正则、不读设置**：设置读一次进内存，`changed::` 刷新。
@@ -70,26 +74,28 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 
 ## Shell 内部接口清单（50.1 实测，核对日期 2026-10-09）
 
-`扩展处` = 本仓库当前挂载/读取位置；`原生处` = `libshell-18.so` 里的定义位置。**改任何一行
-之前先重跑上面那条 `gresource extract` 复核**，不要相信这张表仍然新鲜。
+`扩展处` 只写**符号锚**（函数名 / 被赋的值），不写本仓库的行号——本仓行号每一轮都漂，而符号名是
+`npm test` 正在校验的东西（`every declared patch point is still named in the module that owns it`），漂了会红。
+`原生处` 才是行号区间（我们控制不了它），并且**改任何一行之前先重跑上面那条 `gresource extract` 复核**，不要相信这张表仍然新鲜。
 
 | # | 依赖 | 扩展处 | 原生处（50.1） | 性质 |
 | --- | --- | --- | --- | --- |
-| 1 | `Main.notificationDaemon._fdoNotificationDaemon` | `extension.js:248` | `notificationDaemon.js:714` | 私有属性，无公共访问器 |
-| 2 | `NotifyAsync(params, invocation)` | `extension.js:278`（还原 `:142`） | 定义 `:135`；hints 读 `:166-167`；**同步**，整文件零 `async`/`await` | 私有方法；`_pending` 的单槽假设全系在这一行 |
-| 3 | `_getSourceForPidAndName(sender, pid, appName)` | `extension.js:315`（还原 `:148`） | 定义 `:113`；原生自清 `_sourceForPidAndName` `:126-128` | 私有，三参签名 |
-| 4 | hint `x-shell-sender-pid` / `x-shell-sender` / `desktop-entry` | 读取 helper `extension.js:284`，调用点 `:293`、`:305` | 由独立进程 `/usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Notifications` 注入（那一侧**是** async），shell 侧 `:166-167` 读 | 协议约定，不是 API |
-| 5 | `FdoNotificationDaemonSource.open()` → `openApp()` + `destroyNonResidentNotifications()` | 覆盖 `extension.js:361`，还原 `:105` | `notificationDaemon.js:370-373`（基类 `messageTray.js:612`）；`activated` 未提供 default action 时走 `source.open()` `notificationDaemon.js:232-241`（`:239`） | **实例属性**覆盖，只作用于自建源 |
-| 6 | `Source` 的 `destroy` 信号 | `extension.js:370` connect | 声明 `messageTray.js:513`，发出 `:605` | 公共信号，是观察来源生命周期的唯一受支持方式 |
+| 1 | `Main.notificationDaemon._fdoNotificationDaemon` | `_attach()` 里读 `daemon._fdoNotificationDaemon` | `notificationDaemon.js:714` | 私有属性，无公共访问器 |
+| 2 | `NotifyAsync(params, invocation)` | `_attach()` 里 `fdo.NotifyAsync = …`（`_detachPatches()` 还原） | 定义 `:135`；hints 读 `:166-167`；**同步**，整文件零 `async`/`await` | 私有方法；`_pending` 的单槽假设全系在这一行 |
+| 3 | `_getSourceForPidAndName(sender, pid, appName)` | `_attach()` 里 `fdo._getSourceForPidAndName = …`（`_detachPatches()` 还原） | 定义 `:113`；原生自清 `_sourceForPidAndName` `:126-128` | 私有，三参签名 |
+| 4 | hint `x-shell-sender-pid` / `x-shell-sender` / `desktop-entry` | `NotifyAsync` 包裹层内的 `read()` helper（取 `desktop-entry`、`x-shell-sender-pid`） | 由独立进程 `/usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Notifications` 注入（那一侧**是** async），shell 侧 `:166-167` 读 | 协议约定，不是 API |
+| 5 | `FdoNotificationDaemonSource.open()` → `openApp()` + `destroyNonResidentNotifications()` | 自建源时 `source.open = patchedOpen`，`disable()` 里按 `rec.origOpen` 还原 | `notificationDaemon.js:370-373`（基类 `messageTray.js:612`）；`activated` 未提供 default action 时走 `source.open()` `notificationDaemon.js:232-241`（`:239`） | **实例属性**覆盖，只作用于自建源 |
+| 6 | `Source` 的 `destroy` 信号 | 自建源时 `source.connect('destroy', …)`，id 存进 `_shared` 记录 | 声明 `messageTray.js:513`，发出 `:605` | 公共信号，是观察来源生命周期的唯一受支持方式 |
 | 7 | `Source.destroy()` 的资源释放 | `disable()` 调用 | `messageTray.js:597-609`（`policy.destroy()` `:607`、`run_dispose()` `:608`）；`FdoNotificationDaemonSource.destroy()` `notificationDaemon.js:384-391` 先 `unwatch_name`，**且不转发 reason** | 禁用即销毁自建源的依据 |
-| 8 | `Message.prototype.unexpand(animate)` | `uiWorkarounds.js:106`（还原 `:183`） | `messageList.js:644`，其中 `:646` 的 `ease_property('@layout.expansion')` 就是 `ui/environment.js:196` 的**普通函数** `_easeAnimatableProperty` | 导出类的原型（动态 `import()`） |
-| 9 | `NotificationMessageGroup.prototype.collapse()` | `uiWorkarounds.js:131`（还原 `:188`） | `messageList.js:988-1009`：`forEach` `:992`、`_expanded=false` `:998`、`_cover.show()` `:1000`、唯一的 `.catch()` 在 `:1006`（循环之后，拦不到） | 同上 |
-| 10 | `NotificationMessage.prototype.close` | `uiWorkarounds.js:154`（还原 `:193`） | **仅继承**：真身 `Message.close` `messageList.js:541`，`NotificationMessage` 无自有 `close`；默认处理器 `on_close` `:726` | 见 F5：上游动 `Message.close` 会连带影响这一层 |
+| 8 | `Message.prototype.unexpand(animate)` | `attach()` 里 `Message.prototype.unexpand = …`（`detach()` 按 `_origUi` 还原） | `messageList.js:644`，其中 `:646` 的 `ease_property('@layout.expansion')` 就是 `ui/environment.js:196` 的**普通函数** `_easeAnimatableProperty` | 导出类的原型（动态 `import()`） |
+| 9 | `NotificationMessageGroup.prototype.collapse()` | `attach()` 里 `Group.prototype.collapse = …`（`detach()` 还原） | `messageList.js:988-1009`：`forEach` `:992`、`_expanded=false` `:998`、`_cover.show()` `:1000`、唯一的 `.catch()` 在 `:1006`（循环之后，拦不到） | 同上 |
+| 10 | `NotificationMessage.prototype.close` | `attach()` 里 `NotificationMessage.prototype.close = …`（`detach()` 还原） | **仅继承**：真身 `Message.close` `messageList.js:541`，`NotificationMessage` 无自有 `close`；默认处理器 `on_close` `:726` | 见 F5：上游动 `Message.close` 会连带影响这一层 |
 | 11 | `Message._bodyBin` / `._expanded` / `Group._cover` / `expanded` getter | `uiWorkarounds.js` 内 | `messageList.js:512`、`:909`、`:904`、`:952`（单卡组报 `expanded===true`） | 私有字段，兜底的判据 |
 | 12 | 折叠组里 close 升级为整组关闭 | 兜底的触发条件 | `messageList.js:1107-1112`（`signal_stop_emission` `:1110`、`this.close()` `:1111`）；点击被吞 `:1114-1119`（`if (!this.expanded)` `:1115`） | 已知上游行为，不是缺陷本身 |
-| 13 | `MAX_NOTIFICATIONS_PER_SOURCE = 10` | `extension.js:45`（`NATIVE_MAX_PER_SOURCE`）、`_evictTo` `:214-219` | `messageTray.js:25`，同步削位 `:577-580`，reason `EXPIRED`（枚举 `:48-53`） | 设置项 `max-per-source` 的上界来源 |
+| 13 | `MAX_NOTIFICATIONS_PER_SOURCE = 10` | `NATIVE_MAX_PER_SOURCE` 常量 + `_evictTo()` | `messageTray.js:25`，原生在 **push 之前**同步削位 `:577-579`，reason `EXPIRED`（枚举 `:48-53`） | 设置项 `max-per-source` 的上界来源 |
+| 13b | **Source 在自己最后一条通知被销毁时自我销毁** | 决定了削位只能放在 push **之后** | `messageTray.js:569-570`：`if (!this._inDestruction && this.notifications.length === 0) this.destroy()` | 硬约束：`_evictTo(…, 0)` 会让随后原生的 `addNotification`（`:592`）操作已 dispose 的对象，实测 `Gjs-CRITICAL … has been already disposed`，栈为 `notificationDaemon.js:266 → :367 → messageTray.js:592` |
 | 14 | destroy reason → FDO `NotificationClosed` | 不干预 | `notificationDaemon.js:178-195`（EXPIRED→1 / DISMISSED→2 / SOURCE_CLOSED→3 / 其它→4），发出 `:300-302` | `EXPIRED` 传错＝替用户"手动关闭"，见 `_evictTo` 注释 |
-| 15 | `ExtensionBase.getSettings(schema)` | `extension.js:165` | `extensions/sharedInternals.js:92`；`metadata.json` 需 `settings-schema`；GNOME 50 **不再**自动编译扩展自带 schema（`extensionUtils.js`/`extensionSystem.js` 里零 `compile_schemas`） | 公共 API（扩展框架） |
+| 15 | `ExtensionBase.getSettings(schema)` | `_loadSettings()` 里的 `this.getSettings()` | `extensions/sharedInternals.js:92`；`metadata.json` 需 `settings-schema`；GNOME 50 **不再**自动编译扩展自带 schema（`extensionUtils.js`/`extensionSystem.js` 里零 `compile_schemas`） | 公共 API（扩展框架） |
 
 **设置的一条实操注意**（本机实测）：扩展用的 schema 只存在于扩展目录的 `schemas/`，
 `getSettings()` 是现场 `Gio.SettingsSchemaSource.new_from_directory(...)`（`sharedInternals.js:97-105`）

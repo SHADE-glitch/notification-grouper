@@ -219,3 +219,28 @@ Evidence 全部原生锚点于 2026-10-09 用 `gresource extract /usr/lib/gnome-
 Cost     手抄数字留着就是"绿而失明"的文档版；`.catch()` 归属写错会把下一个人引向去 patch
          一条根本接不到异常的 promise
 Commit   96ce1a0, 4c8c7f5
+
+### D-016 · 2026-10-10 · fix · v9
+Symptom  把 `max-per-source` 设成 1 时实测 `Gjs-CRITICAL: Object
+         Gjs_ui_notificationDaemon_FdoNotificationDaemonSource … has been already
+         disposed`，栈为 `notificationDaemon.js:266 → :367 → messageTray.js:592`，
+         我们包装 `NotifyAsync` 的那一帧就在其下。根因是削位时机：原生在源的最后一条通知
+         被销毁时会**自我销毁**（`messageTray.js:569-570`
+         `if (!this._inDestruction && this.notifications.length === 0) this.destroy()`），
+         而我们在原生 push 之前削到 cap-1 —— cap=1 就是清空。cap>=2 削完仍留至少一条，
+         所以默认值 10 与设置页上的多数取值都没有症状，只有端点 1 会踩
+Change   削位改到原生 push **之后**：`_getSourceForPidAndName` 不再削位，只把接管的源登记到
+         `_pending.servedSource`；`NotifyAsync` 包裹层在 `_orig.notify.call` 返回后
+         （该路径同步，通知此时已进源）削到 cap。可见条数仍是精确的 cap，而 keep 恒 >= 1，
+         两处调用点（push 后与设置调小时）都不可能把源清空
+Evidence L1 40/40，日志里 `already disposed` 计数 0；新增端点与 reason 断言
+         （cap=1 留一张且仍是一个源、cap=10 与原生上界一致、被削掉的卡片 reason 是
+         EXPIRED(1) 而不是 DISMISSED(2)）；`npm run verify:provoke` 7 个变异全部打出各自
+         的红灯，包含新增的 post-push-trim-removed。
+         过程记录：第一轮修复只做了一半（加了 push 后的削位却没删 push 前的削位，
+         `servedSource` 从未被赋值），正是新加的那条变异打不红暴露了它——
+         断言对着一条空转的代码路径当然恒绿。L2 未验证（当前会话加载的仍是修复前的代码）
+Cost     回到 push 前削位就只在 cap=1 时复发，且只在真实触发第 11 次削位时才打日志，
+         是典型的"默认值看不出问题"的缺陷；探针侧同时改掉了事后读取已销毁包装的写法——
+         那条 critical 本来是仪器自己造成的，它一度被当成产品缺陷的读数
+Commit   b09e179
