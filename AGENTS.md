@@ -184,6 +184,8 @@ facts are the thing that drifts.
   `node tests/repo.test.mjs` remain runnable bare and must stay dependency-free.
 - `npm run check` — `node --check` over every shipped JS file. `npm run check:prefs` — the
   Adw member gate (needs `gjs`, no shell). `npm run check:log` — CHANGELOG coverage gate.
+- `npm run pack` — build the installable zip **and** gate its contents (needs the
+  `gnome-extensions` CLI, so it is a local step; `npm test` guards the manifest instead).
 - `npm run verify:headless` (`tests/headless-verify.sh`) — runtime assertions in a throwaway
   GNOME Shell: `dbus-run-session` + `GSETTINGS_BACKEND=memory` + private `XDG_DATA_HOME` +
   unique `--wayland-display` + `--headless --virtual-monitor`. It must stay isolated — never
@@ -227,6 +229,20 @@ facts are the thing that drifts.
   protection is enabled — read the result after every push.
 
 ## Release / version
+- **Never release a bundle the gate has not produced.** Use `npm run pack`
+  (`tests/pack.sh`), not a bare `gnome-extensions pack`. Measured on this machine's GNOME 50
+  tooling: the packer auto-includes only `metadata.json` / `extension.js` / `prefs.js` /
+  `stylesheet*.css`, so every module split out of `extension.js` is dropped **silently**
+  (exit 0), and it ships `schemas/<id>.gschema.xml` but never `schemas/gschemas.compiled` —
+  which is the file `Gio.SettingsSchemaSource.new_from_directory()` actually opens. `--schema=`
+  and a directory `--extra-source` both fail and still exit 0; `--extra-source=schemas/x.compiled`
+  lands the file at the zip **root**. `tests/pack.sh` adds what the packer cannot and refuses to
+  emit a bundle missing any runtime file, so the manifest is the only place the list lives, and
+  `npm test` (which is what CI can run — no `gnome-extensions` on runners) fails if a new local
+  import is not declared there.
+- **The installable artifact gets its own L1 run**: extract the produced zip and run
+  `tests/headless-verify.sh <extracted-dir> <label>`. The source tree passing proves nothing
+  about the bundle (the undeclared bundle measured 2/41 while the tree ran 41/41).
 - The shipped version is the integer **`version`** field in `metadata.json` — the only place
   the number lives; nothing else hardcodes it.
 - Bump it when a change ships to users, **in its own commit** (precedent: `meta: version 5→6`).

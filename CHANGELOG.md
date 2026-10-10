@@ -277,3 +277,30 @@ Cost     监听只活在这条私有总线里，进程随 harness 结束；今�
          不在 PATH 或总线没起来，而不是判产品红。通用 disposed 串留在判据里，就是留给下一个人
          在换壳噪声里找不存在的缺陷
 Commit   59ec0aa
+
+### D-018 · 2026-10-10 · fix · v9
+Symptom  发布路径产出的包是残缺的，而且**残缺得毫无动静**。GNOME 50 的
+         `gnome-extensions pack` 只自动收固定文件名（`metadata.json` / `extension.js` /
+         `prefs.js` / `stylesheet*.css`），于是拆出去的引擎模块与兜底模块被**静默丢掉、
+         退出码仍为 0**：解出来的包连 `import` 都过不去，扩展整个加载失败。schema 侧只收
+         `schemas/<id>.gschema.xml`，而运行时 `Gio.SettingsSchemaSource.new_from_directory()`
+         打开的是 `schemas/gschemas.compiled`（只有 .xml 时直接抛
+         "Failed to open file …/gschemas.compiled"）；`--extra-source=schemas/gschemas.compiled`
+         会把该文件放到 zip **根目录**（路径错等于没放），`--schema=schemas` 报
+         "Can't recursively copy directory" 之后同样 exit 0。三层验证全绿也照不出这件事，
+         因为它们跑的都是源码树，没有任何一层碰过产物
+Change   发布统一走 `npm run pack`：先让 packer 做它会做的部分，再按正确的 arcname 补进
+         compiled schema，最后拿**声明的必需清单**校验 zip 内容、拒绝开发期文件泄漏，
+         不合规 exit 1。清单只有一份，且由 L0 守卫从出厂 JS 的本地 import 反查校验——
+         新增模块忘记登记就直接红（CI 跑得动这一层，runner 上没有 `gnome-extensions`）。
+         产物本身另过一轮 L1：解包后把目录交给 `tests/headless-verify.sh`
+Evidence 红→绿都实测过：naive 包 **2/41**，补齐后的包 **41/41**（同一 harness，只是换了
+         传入目录）；L0 守卫的两个 FAIL 分支各自单独逼红（少写一个模块、少写 compiled
+         schema），此时其余用例仍绿，说明红的是这一条而不是整套；守卫自带反空转断言
+         （本地 import 少于 2 个就报错）。L0 全绿、`check:log` 绿。
+         **影响范围已核实**：仓库没有 GitHub release 也没有 tag，README 的安装方式是
+         `git clone` 源码树，所以没有任何用户拿到过残缺包——坏的是尚未走过的发布路径
+Cost     留着的后果是"第一次上传 zip 就把一个加载失败的扩展发出去"，而且 packer 的 exit 0
+         会让人以为成功；产物改为 gitignore（可再生，且必须重新过门禁而不是信缓存），
+         代价是发布前多跑两条命令
+Commit   6041f3c
