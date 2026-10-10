@@ -22,7 +22,7 @@ case "$GV" in
   *) bad "期望 GNOME Shell 50.x，读到：${GV:-（读不到）}" ;;
 esac
 if [ -f /usr/lib/gnome-shell/libshell-18.so ]; then
-    ok "shell JS 在 libshell-18.so 的 gresource 里（升级时按 MAINTENANCE § 升级适配手册 重取）"
+    ok "shell JS lives in libshell-18.so's gresource (re-extract per MAINTENANCE § Upgrade adaptation manual on upgrade)"
 else
     bad "/usr/lib/gnome-shell/libshell-18.so 不存在——原生行号锚点全部需要重验"
 fi
@@ -109,7 +109,7 @@ else
         bad "出现 degraded：上游改了被依赖的方法/模块名"
     fi
     if echo "$LOG" | grep -qiE 'JS ERROR.*(messageList|unexpand|expansion)'; then
-        bad "折叠缺陷仍然复现（兜底没拦住）——按 MAINTENANCE § 升级适配手册 第 4 步查"
+        bad "the collapse defect still reproduces (the guard did not stop it) — check MAINTENANCE § Upgrade adaptation manual step 4"
     fi
 fi
 
@@ -152,7 +152,7 @@ cat <<'TXT'
 
   6. 空闲代价：登录后放着 30 分钟不动，比较开/关两种状态的
      `ps -o rss=,etime=,pcpu= -C gnome-shell`。这是**趋势**，不是判据；
-     headless 的 RSS 数字测不到真实功耗（MAINTENANCE § 功耗与泄漏的固定度量方法）。
+     the headless RSS number cannot measure real power draw (MAINTENANCE § Fixed measurement methods for power draw and leaks).
 
 TXT
 
