@@ -294,6 +294,19 @@ application names replaced with generic ones; sender pids are kept, because "eve
 invocation has a different pid" is the premise the whole extension rests on and the
 fixtures are the evidence for it.
 
+## 🧪 Testing
+
+`npm test` is the offline gate and needs no shell: the engine unit tests
+(`tests/test-groupEngine.mjs`) plus the repository guards (`tests/repo.test.mjs` — bilingual
+doc pair, zero-timer grep, patch-point ownership, no-Gtk-in-shell-process, records free of
+application names, `reports/` untracked). `npm run check` and `npm run check:prefs` are the
+static and gjs checks; `npm run check:log` gates the CHANGELOG coverage.
+
+The runtime harnesses boot a private GNOME Shell and are deliberately **not** run in CI:
+`npm run verify:headless`, `npm run verify:ui-guard` and `npm run verify:provoke` (see
+[Development](#-development) for what each proves). Each command prints its own count, which
+is never copied into this file.
+
 ## 🩹 Workaround for a GNOME 50 notification-list defect
 
 GNOME 50's own `ui/messageList.js` has a race that can leave the notification list
@@ -425,4 +438,4 @@ GPL-2.0-or-later · `SPDX-License-Identifier: GPL-2.0-or-later`. See [LICENSE](L
 
 ---
 
-完整中文说明见 [README.zh-CN.md](README.zh-CN.md)。
+Full Chinese documentation: [README.zh-CN.md](README.zh-CN.md).

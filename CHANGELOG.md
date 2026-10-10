@@ -16,299 +16,421 @@ Known-but-not-fixed issues do **not** appear here (they have no commit) — see 
 ---
 
 ### D-001 · 2026-09-26 · revert · v2
-Symptom  设置面依赖 libadwaita 的具体控件属性，1.9.1 上 `Adw.ButtonRow` / `EntryRow` 没有
-         `subtitle`（`ddc3094` 实测撞上，当时改用 Group description 绕开）
-Change   删除 `prefs.js` / `rules.json` / `rules.example.json` / `check-adw-props.py`，
-         扩展改为零配置：无设置对话框、无规则文件、无 config key
-Evidence L0 静态可证（HEAD 里这些文件不存在）；L1 2026-10-07 重跑全绿；L2 未验证
-Cost     恢复它等于推翻"零配置"定位，不是恢复一段代码
+Symptom  The preferences surface depended on specific libadwaita widget properties; on 1.9.1
+         `Adw.ButtonRow` / `EntryRow` have no `subtitle` (`ddc3094` hit this in practice, and
+         the workaround at the time was to use the Group description)
+Change   Deleted `prefs.js` / `rules.json` / `rules.example.json` / `check-adw-props.py`;
+         the extension became zero-config: no settings dialog, no rules file, no config key
+Evidence L0 statically provable (these files do not exist in HEAD); L1 re-run all green on
+         2026-10-07; L2 unverified
+Cost     Restoring it means overturning the "zero-config" positioning, not restoring a
+         piece of code
 Commit   257d84f
 
 ### D-002 · 2026-09-26 · revert · v2
-Symptom  引擎带 `compileRules` 与 `sourceRules` / `blockRules` / `bodyPattern` / `urgency` /
-         `groups` 等规则字段，成立的前提是有一整套规则文件与校验路径
-Change   瘦身为 `normalizeName` + `computeGroup` + `checkAttachPoints` 三个纯函数，
-         规则字段全部移除
-Evidence L0 静态可证（HEAD 两个源文件里 `compileRules` 与 `rules` 均 0 命中）；
-         L1 2026-10-07 重跑全绿；L2 未验证
-Cost     与 D-001 同批：恢复规则能力等于恢复一个已被删除的设置面
+Symptom  The engine carried `compileRules` plus rule fields such as `sourceRules` /
+         `blockRules` / `bodyPattern` / `urgency` / `groups`; these only make sense given a
+         whole set of rules files and a validation path
+Change   Slimmed down to three pure functions `normalizeName` + `computeGroup` +
+         `checkAttachPoints`; all rule fields removed
+Evidence L0 statically provable (`compileRules` and `rules` both have 0 hits in the two
+         source files in HEAD); L1 re-run all green on 2026-10-07; L2 unverified
+Cost     Same batch as D-001: restoring rule capability means restoring an already-deleted
+         preferences surface
 Commit   e0872b3
 
 ### D-003 · 2026-09-26 · revert · v2
-Symptom  扩展曾带第三个 daemon 补丁、清组按钮、TTL 过期、组头标题覆盖
-Change   回到 2 个补丁 + 原生行为，上述四项删除，交还给 GNOME 原生
-Evidence L1 2026-10-07 重跑全绿（其中 "native cached one pid per group" 仍在）；
-         TTL 与组头覆盖在 HEAD 0 命中；L2 未验证
-Cost     删掉的是功能不是缺陷，重新加回等于改变"只补丁、不改行为"的定位
+Symptom  The extension once carried a third daemon patch, a clear-group button, TTL expiry,
+         and a group-header title override
+Change   Returned to 2 patches + native behavior; the four items above were deleted and
+         handed back to native GNOME
+Evidence L1 re-run all green on 2026-10-07 (of which "native cached one pid per group"
+         still holds); TTL and group-header override have 0 hits in HEAD; L2 unverified
+Cost     What was deleted is a feature, not a defect; adding it back means changing the
+         "patch only, don't change behavior" positioning
 Commit   2df3f29
 
 ### D-004 · 2026-09-29 · fix · v4
-Symptom  FDO 后端按 `pid + app_name` 缓存 source；命令行与开发工具每次一个全新 pid，
-         同一来源的通知散成一堆独立卡片。此前对通用 `app_name`（`notify-send` 等）直接放过
-Change   分组键改为发送者**声明**的身份，声明了通用名的那批也参与分组
-Evidence L1 2026-10-07 重跑全绿（"group keys as declared"、"3 same-name pids merged"）；
-         L2 发送端 `-a` 曾实测有效（README § How it works）
-Cost     边界要一起看：完全未声明名字的发送者仍然放过，本条只改变"声明了通用名"那一批
+Symptom  The FDO backend caches the source by `pid + app_name`; command-line and dev tools
+         get a brand-new pid each time, so notifications from the same origin scatter into a
+         pile of separate cards. Previously generic `app_name` values (`notify-send` etc.)
+         were let straight through
+Change   Changed the grouping key to the identity the sender **declares**; the batch that
+         declares a generic name now also participates in grouping
+Evidence L1 re-run all green on 2026-10-07 ("group keys as declared", "3 same-name pids
+         merged"); L2 sender-side `-a` was verified working (README § How it works)
+Cost     Consider the boundary together: senders that declare no name at all are still let
+         through; this entry only changes the batch that declares a generic name
 Commit   491f744
 
 ### D-005 · 2026-10-01 · fix · v4
-Symptom  `enable()` 未先 `disable()` 时，第二次 `_attach()` 会把包装层本身当作原始方法捕获，
-         形成 `wrapper2 -> wrapper1 -> wrapper1`；headless 实测复现为 `extension.js:141`
-         的 504 层递归，该次运行里所有通知全部丢失
-Change   `_attach()` 先调 `_detachPatches()` 再捕获 `_orig`，使 `_orig` 兼作
-         "我当前是否已打补丁"的唯一标志
-Evidence L1 2026-10-07 重跑全绿（"double-enable restores pristine"、"re-attach after detach"、
-         "no wrapper recursion"）；L2 未验证
-Cost     去掉幂等不会报错，只会静默丢通知；它与 `disable()` 的恢复逻辑不能分开改
+Symptom  When `enable()` runs without a prior `disable()`, the second `_attach()` captures
+         the wrapper layer itself as the original method, forming
+         `wrapper2 -> wrapper1 -> wrapper1`; headless testing reproduced this as 504 layers
+         of recursion at `extension.js:141`, and every notification was lost in that run
+Change   `_attach()` now calls `_detachPatches()` before capturing `_orig`, so `_orig`
+         doubles as the single flag for "am I currently patched"
+Evidence L1 re-run all green on 2026-10-07 ("double-enable restores pristine", "re-attach
+         after detach", "no wrapper recursion"); L2 unverified
+Cost     Removing idempotency throws no error, it just silently drops notifications; it
+         cannot be changed separately from the restore logic in `disable()`
 Commit   f10a7ea
 
 ### D-006 · 2026-10-01 · fix · v4
-Symptom  `_pending` 只用 `pid` 校验。同一发送进程连续发两条 `app_name` 不同的通知时 pid
-         相同，会被并进错误的组并改写栈标题——pid 守卫看不见这种交错
-Change   同时记录原始 `params[0]`；`_getSourceForPidAndName` 在两者不一致时落回原生路径
-Evidence L1 2026-10-07 重跑全绿，但其中 "app_name guard silent" 是**负向断言**——它只证明
-         正常情形不该触发，不证明触发时行为正确；journal 出现 `pending-appname-mismatch`
-         即说明同步性假设已破；L2 未验证
-Cost     删掉第二个字段校验不会报错，只会静默错合并，这是本条最难发现的地方
+Symptom  `_pending` was validated by `pid` alone. When one sending process fires two
+         notifications with different `app_name` back to back, the pid is the same, so they
+         get merged into the wrong group and rewrite the stack title — the pid guard can't
+         see this interleaving
+Change   Also record the original `params[0]`; `_getSourceForPidAndName` falls back to the
+         native path when the two disagree
+Evidence L1 re-run all green on 2026-10-07, but "app_name guard silent" is a **negative
+         assertion** — it only proves the guard should not fire in the normal case, not that
+         behavior is correct when it does fire; a `pending-appname-mismatch` in the journal
+         means the synchronicity assumption has broken; L2 unverified
+Cost     Removing the second field check throws no error, it just silently mis-merges; this
+         is the hardest part of this entry to spot
 Commit   57f2661
 
 ### D-007 · 2026-10-07 · fix · v5
-Symptom  GNOME 50.1 `messageList.js` 的 `_removeNotification` 在 :1161 读
-         `item.layout_manager`，却在动画 `onComplete`（:1170）才删映射：中途抛错就留下孤儿消息。
-         `collapse()`（:988）在 :992 遍历到它，`Message.unexpand`（:644）的 :646 调
-         `ease_property('@layout.expansion')`，而 `ease_property` 就是普通非 async 函数
-         `_easeAnimatableProperty`（ui/environment.js:196）⇒ `TypeError` 同步抛出，
-         `collapse()` 虽是 `async` 却无 `try/finally`，抛出只把它自己的 promise 变成 rejected ⇒
-         `_expanded = false`（:998）和 `_cover.show()`（:1000）不执行（方法里唯一的 `.catch()`
-         在 :1006，属于循环**之后**那句 `ease_property_async`，拦不到这次抛出）⇒
-         组永久半折叠，之后每次点击都被 :1114-1119 分支吞掉，托盘看起来是死的
-Change   经动态 `import()` 取 `ui/messageList.js`，给 `Message.prototype.unexpand` 与
-         `NotificationMessageGroup.prototype.collapse` 加兜底；只在
-         `_bodyBin.layout_manager` 为 null（actor 已销毁）时改道；`disable()` 里连同两个
-         daemon 补丁一起还原；`_attachUiGuards()` 在 `await` 之后检查 `_enabled` 才继续
-Evidence L1 2026-10-07 `verify:ui-guard` PASS（`collapseThrewToCaller=false`、
-         `coverShown=true`、`TypeError(obj is null)` 计数 0）；L2 未验证（折叠路径需真实会话）
-Cost     上游修好后应整块删除——它是缺陷兜底不是功能。之所以由本扩展兜：分组让卡片变多，
-         把一个原生几乎碰不到的缺陷变成偶尔可碰（README § Why an extension for grouping
-         patches shell UI）
+Symptom  GNOME 50.1 `messageList.js`'s `_removeNotification` reads `item.layout_manager` at
+         :1161, but only deletes the mapping in the animation `onComplete` (:1170): if it
+         throws in between, an orphan message is left behind. `collapse()` (:988) iterates
+         onto it at :992, `Message.unexpand` (:644) at :646 calls
+         `ease_property('@layout.expansion')`, and `ease_property` is just the ordinary
+         non-async function `_easeAnimatableProperty` (ui/environment.js:196) ⇒ the
+         `TypeError` is thrown synchronously; `collapse()` is `async` but has no
+         `try/finally`, so the throw only turns its own promise into rejected ⇒
+         `_expanded = false` (:998) and `_cover.show()` (:1000) do not run (the method's only
+         `.catch()` is at :1006, belonging to the `ease_property_async` statement **after**
+         the loop, so it can't catch this throw) ⇒ the group stays half-collapsed forever,
+         and every later click is swallowed by the :1114-1119 branch; the tray looks dead
+Change   Obtain `ui/messageList.js` via dynamic `import()`, add fallbacks to
+         `Message.prototype.unexpand` and `NotificationMessageGroup.prototype.collapse`;
+         only reroute when `_bodyBin.layout_manager` is null (actor already destroyed);
+         restore them together with the two daemon patches in `disable()`;
+         `_attachUiGuards()` checks `_enabled` after `await` before continuing
+Evidence L1 2026-10-07 `verify:ui-guard` PASS (`collapseThrewToCaller=false`,
+         `coverShown=true`, `TypeError(obj is null)` count 0); L2 unverified (the collapse
+         path needs a real session)
+Cost     Should be deleted wholesale once upstream fixes it — it's a defect fallback, not a
+         feature. Why this extension carries it: grouping multiplies the cards, turning a
+         defect native code can almost never hit into one that can occasionally be hit
+         (README § Why an extension for grouping patches shell UI)
 Commit   528b234
 
 ### D-008 · 2026-10-08 · fix · v7
-Symptom  点一张没有 default action 的通知，原生 `FdoNotificationDaemonSource.open()` 先
-         `openApp()`（本源 app 恒 null，实为 no-op）再 `destroyNonResidentNotifications()`，
-         清空整个来源。原生按发送方缓存来源≈一张卡，看不见；跨 pid 合并把作用域放大成
-         一整组，于是"点一张卡 -> 列表清空、日历停在空白页、整组消失"
-Change   新建自建源时覆盖它的 `open()`，只保留 `openApp()`、去掉批量销毁；被点的那张仍由
-         `Notification.activate()` 对非驻留通知的 `destroy()` 自行销掉。原生源不碰，
-         `disable()` 按每记录 `origOpen` 还原（`source.open === rec.patchedOpen` 守卫防误
-         还原）；`source.open` 非函数时只告警不拖累分组
-Evidence L1 2026-10-08 `verify:headless` 全绿（新增 "merged source recognised"、
-         "open() does not wipe the group"：调共享源 open() 后通知数不变）；L2 未验证
-Cost     去掉覆盖即回到"点一张清整组"。它只作用于本扩展自建源，故删除它的代价仅限该场景
+Symptom  Clicking a notification that has no default action makes the native
+         `FdoNotificationDaemonSource.open()` first call `openApp()` (this source's app is
+         always null, effectively a no-op) and then `destroyNonResidentNotifications()`,
+         wiping the whole source. Native caching by sender ≈ one card, so it's invisible;
+         cross-pid merging widens the scope to an entire group, so "click one card -> list
+         clears, calendar sits on a blank page, the whole group disappears"
+Change   When creating an own source, override its `open()`, keeping only `openApp()` and
+         dropping the bulk destroy; the clicked card is still dismissed by
+         `Notification.activate()`'s `destroy()` for non-resident notifications. Native
+         sources are untouched; `disable()` restores by each record's `origOpen` (the
+         `source.open === rec.patchedOpen` guard prevents a wrong restore); when
+         `source.open` is not a function, only warn without dragging down grouping
+Evidence L1 2026-10-08 `verify:headless` all green (newly added "merged source recognised",
+         "open() does not wipe the group": notification count unchanged after calling the
+         shared source's open()); L2 unverified
+Cost     Removing the override brings back "click one, wipe the whole group". It only
+         affects the extension's own sources, so the cost of deleting it is confined to
+         that scenario
 Commit   eb0a0fa
 
 ### D-009 · 2026-10-08 · taste · v7
-Symptom  折叠组里点一张卡的 ×，原生 `messageList.js:1107-1112` 会把 close 升级成"关整组"。
-         原生一个源≈一张卡时看不见，合并后代价放大
-Change   仅当"本扩展自建源 + 组处于折叠态"时，改为直接跑 close 的默认处理器 `on_close()`
-         （GJS 按 `on_<signal>` 自动接线，已实测确认），只关被点的那张；原生源、展开态、
-         单卡组一律走原生路径
-Evidence L1 2026-10-08 `verify:ui-guard` 同一 harness 对新旧构建翻转：折叠组关一张，
-         pre-fix 3 -> 0（整组），post-fix 3 -> 2（只关一张）；L2 未验证
-Cost     taste 级：删掉它只退回"点 × 关整组"，不构成 bug。之所以仍做，是它与 D-008 同源
-         （合并放大原生 per-source 行为），一起改才自洽
+Symptom  Clicking a card's × in a collapsed group makes native `messageList.js:1107-1112`
+         upgrade close into "close the whole group". Invisible when one native source ≈ one
+         card; the cost is amplified after merging
+Change   Only when "the source is an extension-owned source + the group is collapsed", run
+         close's default handler `on_close()` directly instead (GJS auto-wires by
+         `on_<signal>`, confirmed by testing), closing only the clicked card; native
+         sources, expanded state, and single-card groups all take the native path
+Evidence L1 2026-10-08 `verify:ui-guard` flips on the same harness between old and new
+         builds: closing one card in a collapsed group, pre-fix 3 -> 0 (whole group),
+         post-fix 3 -> 2 (only one closed); L2 unverified
+Cost     taste level: deleting it just falls back to "click × closes the whole group", not a
+         bug. It was still done because it shares a root with D-008 (merging amplifies
+         native per-source behavior); changing them together is what makes it coherent
 Commit   eb0a0fa
 
 ### D-010 · 2026-10-09 · fix · v8
-Symptom  `enable()` 的幂等**只对 daemon 两方法成立**。它在 attach 之前把 `_shared` /
-         `_ownSources` 重建为空，而自建源的 `open()` 覆盖与每源 `destroy` 连接只登记在这些表里、
-         只由 `disable()` 按记录还原：一次没有经过 disable 的二次 enable 就把它们永久孤儿化
-         （`destroy` 闭包还捕获扩展实例本身），而 `_ownSources` 丢条目会让 close 兜底无声退回
-         "关一张=关整组"。原型兜底另有一处：`detach()` 被调在它自己那个 `await` **之前**，
-         等于没 detach
-Change   删掉 `enable()` 里三行状态重置（只保留纯记账字段）；兜底的 detach 移到 await 之后、
-         捕获之前；await 之后重新检查存活才允许挂
-Evidence L1 2026-10-09 先红后绿：六条断言（record survives re-enable / own-source survives
-         re-enable / merged open() restored / destroy handler detached / guards restored to
-         pristine / disable log matches reality）在未修复树上全部 FAIL，修复后全部 PASS。
-         实跑还证伪了我的静态估计：不是叠 2 层而是叠 4 层（4 次 enable → 4 行
-         "UI guards attached"），且 `disable()` 打印出完整的"已还原三处兜底"**假报告**；
-         L2 未验证（真实生效需要登出）
-Cost     恢复任何一行重置都会重新引入孤儿补丁；这条与 `disable()` 的还原逻辑不能分开改
+Symptom  `enable()`'s idempotency **only holds for the two daemon methods**. It rebuilds
+         `_shared` / `_ownSources` to empty before attach, while the own-source `open()`
+         override and per-source `destroy` connections are registered only in those tables
+         and restored only by `disable()` per record: a second enable that bypasses disable
+         permanently orphans them (the `destroy` closure even captures the extension
+         instance itself), and losing an entry from `_ownSources` makes the close fallback
+         silently fall back to "close one = close the whole group". The prototype fallback
+         has another spot: `detach()` is called **before** its own `await`, which amounts to
+         not detaching
+Change   Removed the three lines of state reset in `enable()` (keeping only pure bookkeeping
+         fields); moved the fallback detach to after the await and before capture; re-check
+         liveness after the await before allowing attachment
+Evidence L1 2026-10-09 red then green: six assertions (record survives re-enable /
+         own-source survives re-enable / merged open() restored / destroy handler detached /
+         guards restored to pristine / disable log matches reality) all FAIL on the unfixed
+         tree and all PASS after the fix. The actual run also falsified my static estimate:
+         it stacks 4 layers, not 2 (4 enables → 4 "UI guards attached" lines), and
+         `disable()` printed a complete "restored three fallbacks" **false report**; L2
+         unverified (taking effect for real requires a logout)
+Cost     Restoring any one reset line reintroduces orphaned patches; this cannot be changed
+         separately from the restore logic in `disable()`
 Commit   96ce1a0
 
 ### D-011 · 2026-10-09 · fix · v8
-Symptom  `open()` 覆盖只去掉原生方法的**后半句**，所以还原成原生 `open()` 之后
-         `destroyNonResidentNotifications()` 重新生效——"点一张卡清掉整组"回到**禁用之后**；
-         同时每个自建源持有一个 `Gio.DBus.watch_name` 订阅和一个 `NotificationPolicy`，
-         不销毁源就无人释放（真泄漏，且闭包链把扩展实例一起留住）
-Change   `disable()` 在断开每源信号、按身份还原 `open()` 之后调用 `rec.source.destroy()`
-Evidence L1 先加两条断言跑出 `FAIL merged source destroyed on disable` /
-         `FAIL native pid cache self-cleaned`，再实现转绿；原生依据 `messageTray.js:597-609`
-         （`policy.destroy()` + `run_dispose()`）与 `notificationDaemon.js:384-391`。
-         顺带查明：`FdoNotificationDaemonSource.destroy()` 不接也不转发 reason，所以这些卡片
-         以 `NotificationClosed` reason 4（`undefined`）发给发送方——已接受并写进 README，
-         不为它加第三个补丁点；L2 未验证
-Cost     代价是禁用瞬间已合并的栈整体消失（用户在 A/B/C 三案里明确选 B）；去掉 destroy 则
-         同时收回"禁用后仍坏"的修复和泄漏的修复
+Symptom  The `open()` override removes only the **second half** of the native method, so
+         after restoring native `open()` the `destroyNonResidentNotifications()` takes effect
+         again — "click one card clears the whole group" returns **after disabling**; also,
+         each own source holds a `Gio.DBus.watch_name` subscription and a
+         `NotificationPolicy`, and nobody frees them unless the source is destroyed (a real
+         leak, and the closure chain keeps the extension instance alive too)
+Change   `disable()` calls `rec.source.destroy()` after disconnecting per-source signals and
+         restoring `open()` by identity
+Evidence L1 first added two assertions that produced
+         `FAIL merged source destroyed on disable` / `FAIL native pid cache self-cleaned`,
+         then implemented to green; native basis is `messageTray.js:597-609`
+         (`policy.destroy()` + `run_dispose()`) and `notificationDaemon.js:384-391`. Also
+         found along the way: `FdoNotificationDaemonSource.destroy()` neither accepts nor
+         forwards a reason, so these cards are sent to the sender as `NotificationClosed`
+         reason 4 (`undefined`) — accepted and written into the README, without adding a
+         third patch point for it; L2 unverified
+Cost     The cost is that the merged stack disappears entirely at the moment of disabling
+         (the user explicitly chose B among the A/B/C options); removing destroy would also
+         take back both the "still broken after disabling" fix and the leak fix
 Commit   96ce1a0
 
 ### D-012 · 2026-10-09 · guard · v8
-Symptom  仪器绿而失明：递归判据 `extension\.js:1\d\d` 只匹配 100–199 行，而现行包裹体在 278/315
-         之后——它守卫不到自己声称的代码；兜底还原与每源 `open()` 还原**没有任何断言**；
-         还原判据在异步挂接完成前就执行，物理上看不见兜底层；`tests/headless-ui-guard.sh`
-         零断言（只 cat JSON），要求的"翻转"靠人肉两次跑 diff，进不了门禁；信号泄漏、
-         actor 残留、空闲开销完全无测量
-Change   还原判据一律改为"与 enable 前捕获的原生函数**身份相等**"；泄漏判据用
-         `GObject.signal_handler_is_connected` 与 own 属性（本机实测 `WeakRef` +
-         `imports.system.gc()` 回收不到 GObject 包装，禁止当探针）；判定前先确认兜底已挂上；
-         ui-guard 改为按 `EXPECT=guarded|native` 用退出码门禁；新增
-         `tests/provoke-settings.sh` 变异台；RSS 打四个点且**只报告不断言**
-Evidence 全部实跑：guarded 与 native 两侧各自全绿且结论相反（3->2 与 3->0）；变异台 6 个变异
-         打出 6 条对应断言变红；三次运行 baseline 相差约 24 MiB（大于被测变化本身），这正是
-         RSS 不进断言的理由。方法上的一条：`if (!flag)` → `if (false)` 那个变异存活，
-         查明是**等价变异**（另一分支本来就先 detach），不是断言假绿——换成两处真实路径的
-         变异后才红
-Cost     判据退回日志文本、行号或 `hasOwnProperty` 就会在下一次行号漂移时集体失明；
-         去掉变异台则"绿而失明"重新只能靠人肉发现
+Symptom  Instrumentation green but blind: the recursion criterion `extension\.js:1\d\d`
+         matches only lines 100–199, while the current wrapper body is after 278/315 — it
+         does not guard the code it claims to; the fallback restore and per-source `open()`
+         restore have **no assertion at all**; the restore criterion runs before the async
+         attach completes, so it physically cannot see the fallback layer;
+         `tests/headless-ui-guard.sh` has zero assertions (only cat JSON), and the required
+         "flip" relies on a human running diff twice, so it can't enter the gate; signal
+         leaks, leftover actors, and idle overhead are not measured at all
+Change   All restore criteria changed to "identity-equal to the native function captured
+         before enable"; leak criteria use `GObject.signal_handler_is_connected` and own
+         properties (locally verified that `WeakRef` + `imports.system.gc()` cannot collect a
+         GObject wrapper, so they are banned as probes); confirm the fallback is attached
+         before judging; ui-guard now gates by exit code on `EXPECT=guarded|native`; added
+         `tests/provoke-settings.sh` mutation bench; RSS samples four points and **only
+         reports, never asserts**
+Evidence All actually run: guarded and native sides each all green with opposite conclusions
+         (3->2 and 3->0); the mutation bench's 6 mutations turned 6 corresponding assertions
+         red; the baseline across three runs differed by about 24 MiB (larger than the change
+         under test), which is exactly why RSS does not enter assertions. One methodological
+         note: the `if (!flag)` → `if (false)` mutation survived; investigation showed it is
+         an **equivalent mutation** (the other branch already detaches first), not a
+         false-green assertion — it only turned red after swapping in mutations on two real
+         paths
+Cost     Falling back to log text, line numbers, or `hasOwnProperty` for criteria will all
+         go blind together the next time line numbers drift; removing the mutation bench
+         means "green but blind" can only be found by hand again
 Commit   4c8c7f5
 
 ### D-013 · 2026-10-09 · chore · v8
-Symptom  三处上游缺陷兜底与分组逻辑同住 `extension.js`（446 行），"上游修好后整块删除"没有
-         删除单位；`NotificationMessage.prototype.close` 只是从 `Message.close` 继承来的，
-         三者同生共死的降级耦合也没有登记处
-Change   抽出 `uiWorkarounds.js`：`attach()` 自己先 detach（来回拨开关不叠层）、await 后检查
-         存活、头部写清删除时要一起动的 9 个文件；`repo.test.mjs` 加"兜底不得爬回
-         extension.js"与"补丁点必须住在拥有它的模块里"两条守卫
-Evidence L1 断言一字未改仍全绿（这就是"行为未变"的证明）；L0 守卫存在且能红；
-         L2 未验证
-Cost     拆回去只是回到"同一个文件里的三段注释"，不改变任何行为——所以记 chore 而不是 guard
+Symptom  The three upstream-defect fallbacks live in the same `extension.js` (446 lines) as
+         the grouping logic, so "delete wholesale once upstream fixes it" has no unit to
+         delete; `NotificationMessage.prototype.close` is merely inherited from
+         `Message.close`, and the degradation coupling that makes all three live and die
+         together has no registry either
+Change   Extracted `uiWorkarounds.js`: `attach()` detaches first itself (toggling back and
+         forth does not stack layers), checks liveness after await, and its header spells out
+         the 9 files to touch together when deleting; `repo.test.mjs` gained two guards,
+         "fallbacks must not crawl back into extension.js" and "a patch point must live in
+         the module that owns it"
+Evidence L1 assertions unchanged word for word and still all green (this is the proof that
+         "behavior is unchanged"); L0 guards exist and can go red; L2 unverified
+Cost     Splitting it back only returns to "three comments in one file" and changes no
+         behavior — hence recorded as chore rather than guard
 Commit   96ce1a0
 
 ### D-014 · 2026-10-09 · revert · v8
-Symptom  D-001 / D-002 删掉了 prefs 与规则引擎，代价是用户无法关掉分组、无法收紧每组条数、
-         无法让某个应用保持独立栈——本轮要的正是这三项（折叠行为、每组上限、按应用例外）
-Change   新增 4 键 schema（`grouping-enabled` / `max-per-source` 1..10 / `ui-guards` /
-         `isolate-apps`）+ Adw 设置页 + 热应用；四个 `changed::` id 全部登记并在 `disable()`
-         逐个 disconnect。**推翻的只是"完全没有设置面"这一条**：不恢复规则文件、不恢复
-         标题/紧急度匹配（D-002 删掉的匹配能力仍然删除），D-003 的四项（第三补丁点、清组
-         按钮、TTL、组头标题覆盖）保持删除。默认值等于扩展原有行为，零配置继续开箱即用；
-         上限以原生 `MAX_NOTIFICATIONS_PER_SOURCE` 为上界，只允许收紧
-Evidence L1 设置阶段全绿，且每个键都有变异对照（cap / grouping / isolate / ui-guards /
-         disconnect 各打红一条对应断言）；L0 `npm run check:prefs` 内省门过
-         （libadwaita 1.9.1：`EntryRow` 无 `subtitle`、`SpinRow` 无 `value-changed`，
-         int 键不能 bind 到 double 的 `value`）。**L2 未验证：对话框的实际渲染与交互是 M**
-Cost     恢复"零设置"就是推翻本轮决定；schema 键一经发布即公开 API，不得改名也不得改类型；
-         `.xml` 与 `.compiled` 必须同笔提交（GNOME 50 不再替扩展编译 schema）
+Symptom  D-001 / D-002 deleted prefs and the rule engine, at the cost that users cannot turn
+         grouping off, cannot tighten the per-group count, and cannot keep an app in its own
+         stack — and these three are exactly what this round wanted (collapse behavior,
+         per-group cap, per-app exceptions)
+Change   Added a 4-key schema (`grouping-enabled` / `max-per-source` 1..10 / `ui-guards` /
+         `isolate-apps`) + an Adw settings page + hot application; all four `changed::` ids
+         are registered and disconnected one by one in `disable()`. **Only the "no
+         preferences surface at all" rule is overturned**: no rules files restored, no
+         title/urgency matching restored (the matching capability D-002 deleted stays
+         deleted), and D-003's four items (third patch point, clear-group button, TTL,
+         group-header title override) stay deleted. Default values equal the extension's
+         original behavior, and zero-config still works out of the box; the cap uses native
+         `MAX_NOTIFICATIONS_PER_SOURCE` as its upper bound and only allows tightening
+Evidence L1 settings phase all green, and every key has a mutation counterpart (cap /
+         grouping / isolate / ui-guards / disconnect each turns one corresponding assertion
+         red); L0 `npm run check:prefs` introspection gate passes (libadwaita 1.9.1:
+         `EntryRow` has no `subtitle`, `SpinRow` has no `value-changed`, an int key cannot
+         bind to a double `value`). **L2 unverified: the dialog's actual rendering and
+         interaction is M**
+Cost     Restoring "zero settings" means overturning this round's decision; once released,
+         schema keys are public API, so neither their names nor their types may change;
+         `.xml` and `.compiled` must be committed in the same commit (GNOME 50 no longer
+         compiles schemas for extensions)
 Commit   96ce1a0
 
 ### D-015 · 2026-10-09 · fix · v8
-Symptom  `groupEngine.js` 注释写"不丢消息"，与原生每源 10 条**同步销毁最旧**
-         （`messageTray.js:25`、`:577-580`）直接矛盾——合并把"一个源"从一个进程变成一个应用，
-         这个上限的作用域被放大；文档里的 `12/12`、`14/14`、"`npm test` 11 例"是手抄且已漂；
-         README 的"禁用不会取消已合并的分组"在 D-011 之后是假的；缺陷链把抛错归给
-         "`.catch()` at `:341`"，而那行其实是 `this._updateText()`
-Change   如实改写上限语义（只下调、不阻止原生丢卡）；原生行号统一改区间
-         （`:1107-1112`、`:1114-1119`，`.catch()` 在 `:1006` 且属于循环**之后**那句
-         `ease_property_async`，结构上拦不到 `:992` 的抛出）；删除所有手抄聚合数字，改由
-         产出它的命令打印；README 双语补「设置」与「排障」两节并改掉禁用语义；
-         fixture 去掉真实应用名并改名
-Evidence 全部原生锚点于 2026-10-09 用 `gresource extract /usr/lib/gnome-shell/libshell-18.so`
-         逐行重读；README 双语节数由 L0 守卫比对；L0 全绿。文档正文本身在写下这条记录的
-         同一笔文档 commit 里
-Cost     手抄数字留着就是"绿而失明"的文档版；`.catch()` 归属写错会把下一个人引向去 patch
-         一条根本接不到异常的 promise
+Symptom  A comment in `groupEngine.js` said "never drops a message", directly contradicting
+         native's per-source 10 with **synchronous destruction of the oldest**
+         (`messageTray.js:25`, `:577-580`) — merging turns "one source" from one process into
+         one app, amplifying the scope of this cap; the doc's `12/12`, `14/14`, and
+         "`npm test` 11 cases" were hand-copied and have already drifted; the README's
+         "disabling does not cancel already-merged groups" became false after D-011; the
+         defect chain attributed the throw to "`.catch()` at `:341`", but that line is
+         actually `this._updateText()`
+Change   Rewrote the cap semantics truthfully (lower it only; do not stop native from
+         dropping cards); changed native line numbers uniformly to ranges (`:1107-1112`,
+         `:1114-1119`, `.catch()` is at `:1006` and belongs to the `ease_property_async`
+         statement **after** the loop, so structurally it cannot catch the throw at `:992`);
+         deleted all hand-copied aggregate numbers, letting the command that produces them
+         print them instead; the bilingual README gained two sections, "Settings" and
+         "Troubleshooting", and the disable semantics were fixed; the fixture dropped real
+         app names and was renamed
+Evidence All native anchors were re-read line by line on 2026-10-09 with
+         `gresource extract /usr/lib/gnome-shell/libshell-18.so`; the bilingual README's
+         section counts are compared by an L0 guard; L0 all green. The document body itself
+         is in the same doc commit as this record
+Cost     Keeping hand-copied numbers is the documentation version of "green but blind";
+         misattributing `.catch()` will lead the next person to patch a promise that can
+         never receive the exception
 Commit   96ce1a0, 4c8c7f5
 
 ### D-016 · 2026-10-10 · fix · v9
-Symptom  把 `max-per-source` 设成 1 时实测 `Gjs-CRITICAL: Object
+Symptom  Setting `max-per-source` to 1 produced `Gjs-CRITICAL: Object
          Gjs_ui_notificationDaemon_FdoNotificationDaemonSource … has been already
-         disposed`，栈为 `notificationDaemon.js:266 → :367 → messageTray.js:592`，
-         我们包装 `NotifyAsync` 的那一帧就在其下。根因是削位时机：原生在源的最后一条通知
-         被销毁时会**自我销毁**（`messageTray.js:569-570`
-         `if (!this._inDestruction && this.notifications.length === 0) this.destroy()`），
-         而我们在原生 push 之前削到 cap-1 —— cap=1 就是清空。cap>=2 削完仍留至少一条，
-         所以默认值 10 与设置页上的多数取值都没有症状，只有端点 1 会踩
-Change   削位改到原生 push **之后**：`_getSourceForPidAndName` 不再削位，只把接管的源登记到
-         `_pending.servedSource`；`NotifyAsync` 包裹层在 `_orig.notify.call` 返回后
-         （该路径同步，通知此时已进源）削到 cap。可见条数仍是精确的 cap，而 keep 恒 >= 1，
-         两处调用点（push 后与设置调小时）都不可能把源清空
-Evidence L1 全绿（断言条数由 harness 自己打印，本文件不抄），日志里 `already disposed`
-         计数 0；新增端点与 reason 断言
-         （cap=1 留一张且仍是一个源、cap=10 与原生上界一致、被削掉的卡片 reason 是
-         EXPIRED(1) 而不是 DISMISSED(2)）；`npm run verify:provoke` 当时全部变异各自打出
-         红灯，包含新增的 post-push-trim-removed。
-         过程记录：第一轮修复只做了一半（加了 push 后的削位却没删 push 前的削位，
-         `servedSource` 从未被赋值），正是新加的那条变异打不红暴露了它——
-         断言对着一条空转的代码路径当然恒绿。L2 未验证（当前会话加载的仍是修复前的代码）
-Cost     回到 push 前削位就只在 cap=1 时复发，且只在真实触发第 11 次削位时才打日志，
-         是典型的"默认值看不出问题"的缺陷；探针侧同时改掉了事后读取已销毁包装的写法——
-         那条 critical 本来是仪器自己造成的，它一度被当成产品缺陷的读数
+         disposed`, with the stack `notificationDaemon.js:266 → :367 → messageTray.js:592`,
+         and the frame where we wrap `NotifyAsync` is right beneath it. The root cause is
+         the eviction timing: native **self-destroys** when a source's last notification is
+         destroyed (`messageTray.js:569-570`
+         `if (!this._inDestruction && this.notifications.length === 0) this.destroy()`),
+         while we evict to cap-1 before the native push — cap=1 means empty. At cap>=2
+         eviction still leaves at least one, so the default 10 and most values on the
+         settings page show no symptom; only the endpoint 1 hits it
+Change   Moved eviction to **after** the native push: `_getSourceForPidAndName` no longer
+         evicts, it only registers the taken-over source into `_pending.servedSource`; the
+         `NotifyAsync` wrapper evicts to cap after `_orig.notify.call` returns (that path is
+         synchronous; the notification has entered the source by then). The visible count is
+         still exactly the cap, and keep is always >= 1, so neither call site (after push,
+         and when the setting is lowered) can empty the source
+Evidence L1 all green (assertion counts are printed by the harness itself, not copied into
+         this file), `already disposed` count 0 in the log; added endpoint and reason
+         assertions (cap=1 leaves one card and still one source, cap=10 matches the native
+         upper bound, the evicted card's reason is EXPIRED(1) not DISMISSED(2));
+         `npm run verify:provoke` had every mutation turn red at the time, including the
+         newly added post-push-trim-removed. Process note: the first round of fixing was
+         only half done (it added post-push eviction but did not remove the pre-push
+         eviction, and `servedSource` was never assigned), and it was the newly added
+         mutation failing to go red that exposed it — an assertion against an idle code path
+         is of course always green. L2 unverified (the current session still has the pre-fix
+         code loaded)
+Cost     Reverting to pre-push eviction makes it recur only at cap=1, and it only logs when
+         the 11th eviction is really triggered — a classic "invisible at the default value"
+         defect; the probe side also dropped the practice of reading an already-disposed
+         wrapper after the fact — that critical was caused by the instrumentation itself, and
+         it was once taken as a reading of a product defect
 Commit   b09e179
 
 ### D-017 · 2026-10-10 · guard · v9
-Symptom  D-016 记下"被削掉的卡片 reason 是 EXPIRED(1)"，但那条断言读的是 shell **进程内部**
-         的 destroy reason。发送方收到的是 FDO 的 `NotificationClosed` 广播，而总线不会把
-         广播信号送回给发送者——在 shell 进程里 subscribe 恒为空，所以"我们到底告诉了发送方
-         什么"此前没有任何门禁：`notificationDaemon.js:178-195` 那段映射若写错，L1 照样全绿。
-         实况侧两个仪器缺陷：`tests/smoke.sh` 用通用串 `already disposed` 判缺陷，真实会话里
-         一次 boot 实测 5 条命中全是 `St.Adjustment` / `Gjs_ui_layout_UiActor` 在换壳那一秒
-         的噪声，**这条判据会诬告**；而它缺一条更基本的前提——本轮 journal 里到底有没有 enable
-         行（改了 JS 却没重新登录时扩展照样 ACTIVE，缺这一条就等于在旧代码上给新代码打勾）
-Change   harness 在自己那条私有会话总线上起 `dbus-monitor`（`member=NotificationClosed`），
-         从削位阶段之前开始监听，断言"抓到 >=1 条且 reason 全为 1"；FAIL 文案打印条数，让
-         "仪器没接上（0 条）"与"产品报了别的 reason"一眼可分；监听输出纳入陈旧文件清理。
-         变异台第 8 条 `evict-reason-dismissed` 把削位用的 EXPIRED 换成 DISMISSED，要求把这条
-         新断言打红；脚本头注释按真实覆盖面改写（它守的不只四个设置键，也守削位时机与 reason）。
-         smoke.sh：disposed 判据收窄到类名 `notificationDaemon_FdoNotificationDaemonSource`，
-         别的类只报条数不参与判定；加"本轮有没有 enable 行"；补 `max-per-source=1` 的实况项，
-         以及"为什么剩下几条必须由你的眼睛看"。顺手把 D-016 里手抄的 `L1 40/40` 改掉——
-         本文件头就写着聚合数由产出它的命令打印，而它已经漂了一版
-Evidence L1 全绿（条数由 harness 自己打印），日志 `Gjs-CRITICAL` 0 条；`npm run verify:provoke`
-         当时每条变异各自打红，含新增这条；`verify:ui-guard` 两个方向给出**相反**结论。
-         L2 新事实：真实会话的 gnome-shell 起动于 11:19，`extension.js` 落盘于 08:13，所以实况
-         加载的确实是修复后的代码（判据是 `ps -o lstart` 对比文件 mtime，**不是**
-         `gnome-extensions info`——那个读的是磁盘 metadata，不反映已加载的类）；把上限设成 1 后
-         journal 里 `FdoNotificationDaemonSource … already disposed` 计数 0。
-         没有据此宣布端到端在实况成立：同一次实况抓取到 3 条 `NotificationClosed` 全为 reason 1，
-         但普通超时的通知**自然过期时读数完全相同**，所以它无法归因于削位——reason 归因只有 L1
-         （`urgency=critical`，不会自然过期，唯一来源就是削位）证明过
-Cost     监听只活在这条私有总线里，进程随 harness 结束；今后若看到 0 条，先怀疑 `dbus-monitor`
-         不在 PATH 或总线没起来，而不是判产品红。通用 disposed 串留在判据里，就是留给下一个人
-         在换壳噪声里找不存在的缺陷
+Symptom  D-016 recorded "the evicted card's reason is EXPIRED(1)", but that assertion read
+         the destroy reason **inside the shell process**. What the sender receives is FDO's
+         `NotificationClosed` broadcast, and the bus does not deliver a broadcast signal back
+         to the sender — subscribing inside the shell process is always empty, so "what we
+         actually told the sender" previously had no gate at all: if that mapping in
+         `notificationDaemon.js:178-195` were wrong, L1 would still be all green. On the live
+         side there were two instrumentation defects: `tests/smoke.sh` judged defects by the
+         generic string `already disposed`, but in a real session a single boot produced 5
+         hits, all of them noise from `St.Adjustment` / `Gjs_ui_layout_UiActor` in the second
+         the shell restyles — **this criterion will falsely accuse**; and it lacked a more
+         basic premise — whether this round's journal actually has an enable line (if JS was
+         changed without logging back in, the extension is still ACTIVE, so missing this line
+         amounts to ticking new code on top of old code)
+Change   The harness starts `dbus-monitor` (`member=NotificationClosed`) on its own private
+         session bus, listening from before the eviction phase, and asserts "at least 1
+         captured and all reasons are 1"; the FAIL text prints the count so that "instrument
+         not connected (0)" and "product reported a different reason" are distinguishable at
+         a glance; the monitor output is included in stale-file cleanup. Mutation bench entry
+         8, `evict-reason-dismissed`, swaps the EXPIRED used for eviction to DISMISSED and
+         requires this new assertion to go red; the script header comment was rewritten to
+         match the real coverage (it guards more than the four settings keys — it also guards
+         eviction timing and reason). smoke.sh: the disposed criterion was narrowed to the
+         class name `notificationDaemon_FdoNotificationDaemonSource`, other classes only
+         report a count without entering the verdict; added "does this round have an enable
+         line"; added the `max-per-source=1` live item and "why the remaining few must be
+         seen by your own eyes". Also fixed the hand-copied `L1 40/40` in D-016 — this file's
+         header states that aggregate numbers are printed by the command that produces them,
+         and it had already drifted one version
+Evidence L1 all green (counts printed by the harness itself), `Gjs-CRITICAL` 0 in the log;
+         `npm run verify:provoke` had every mutation turn red at the time, including this new
+         one; `verify:ui-guard` gives **opposite** conclusions in the two directions. New L2
+         fact: the real session's gnome-shell started at 11:19 and `extension.js` was written
+         to disk at 08:13, so the live session is indeed running the fixed code (the criterion
+         is `ps -o lstart` compared against the file mtime, **not** `gnome-extensions info` —
+         that reads on-disk metadata and does not reflect the loaded class); after setting the
+         cap to 1, the journal's `FdoNotificationDaemonSource … already disposed` count is 0.
+         This did not lead to declaring end-to-end true in the live session: the same live
+         capture caught 3 `NotificationClosed` all with reason 1, but an ordinary timeout
+         notification **naturally expiring reads exactly the same**, so it cannot be
+         attributed to eviction — reason attribution is proven only by L1
+         (`urgency=critical`, does not expire naturally, the only source is eviction)
+Cost     The monitor lives only on this private bus, and the process ends with the harness;
+         from now on, if you see 0, first suspect that `dbus-monitor` is not on PATH or the
+         bus did not come up, rather than judging the product red. Leaving the generic
+         disposed string in the criterion is leaving the next person to hunt for a
+         nonexistent defect in the restyle noise
 Commit   59ec0aa
 
 ### D-018 · 2026-10-10 · fix · v9
-Symptom  发布路径产出的包是残缺的，而且**残缺得毫无动静**。GNOME 50 的
-         `gnome-extensions pack` 只自动收固定文件名（`metadata.json` / `extension.js` /
-         `prefs.js` / `stylesheet*.css`），于是拆出去的引擎模块与兜底模块被**静默丢掉、
-         退出码仍为 0**：解出来的包连 `import` 都过不去，扩展整个加载失败。schema 侧只收
-         `schemas/<id>.gschema.xml`，而运行时 `Gio.SettingsSchemaSource.new_from_directory()`
-         打开的是 `schemas/gschemas.compiled`（只有 .xml 时直接抛
-         "Failed to open file …/gschemas.compiled"）；`--extra-source=schemas/gschemas.compiled`
-         会把该文件放到 zip **根目录**（路径错等于没放），`--schema=schemas` 报
-         "Can't recursively copy directory" 之后同样 exit 0。三层验证全绿也照不出这件事，
-         因为它们跑的都是源码树，没有任何一层碰过产物。
-         两条边界要如实分开：真正会让扩展加载失败的是**模块被丢掉**；compiled schema 缺失
-         不必然坏——目录式安装的扩展由安装方就地生成它（本机四个第三方包的
-         `gschemas.compiled` mtime 都晚于同名 .xml），补进 zip 的理由是**产物必须等于源码树**
-         （`git clone` 装的正是源码树），不是"缺它必坏"
-Change   发布统一走 `npm run pack`：先让 packer 做它会做的部分，再按正确的 arcname 补进
-         compiled schema，最后拿**声明的必需清单**校验 zip 内容、拒绝开发期文件泄漏，
-         不合规 exit 1。清单只有一份，且由 L0 守卫从出厂 JS 的本地 import 反查校验——
-         新增模块忘记登记就直接红（CI 跑得动这一层，runner 上没有 `gnome-extensions`）。
-         产物本身另过一轮 L1：解包后把目录交给 `tests/headless-verify.sh`
-Evidence 红→绿都实测过：naive 包 **2/41**，补齐后的包 **41/41**（同一 harness，只是换了
-         传入目录）；L0 守卫的两个 FAIL 分支各自单独逼红（少写一个模块、少写 compiled
-         schema），此时其余用例仍绿，说明红的是这一条而不是整套；守卫自带反空转断言
-         （本地 import 少于 2 个就报错）。L0 全绿、`check:log` 绿。
-         **影响范围已核实**：仓库没有 GitHub release 也没有 tag，README 的安装方式是
-         `git clone` 源码树，所以没有任何用户拿到过残缺包——坏的是尚未走过的发布路径。
-         补测：`gnome-extensions install <zip>` 在本机对**任何** zip 都报 "Can't recursively
-         copy directory"、exit 0、什么都没装（两文件的平包也一样），所以它不能当发布验证
-         仪器，产物只能靠解包后过 L1。本条初稿把 compiled schema 缺失写成"用户会坏"，
-         是说过头了，已按上面的边界改回；修正与结论同在一个后续 commit 里可见
-Cost     留着的后果是"第一次上传 zip 就把一个加载失败的扩展发出去"，而且 packer 的 exit 0
-         会让人以为成功；产物改为 gitignore（可再生，且必须重新过门禁而不是信缓存），
-         代价是发布前多跑两条命令
+Symptom  The package produced by the release path is incomplete, and **incomplete with no
+         sign at all**. GNOME 50's `gnome-extensions pack` only auto-collects fixed filenames
+         (`metadata.json` / `extension.js` / `prefs.js` / `stylesheet*.css`), so the split-out
+         engine module and fallback module are **silently dropped, exit code still 0**: the
+         extracted package can't even get past `import`, and the whole extension fails to
+         load. On the schema side it only collects `schemas/<id>.gschema.xml`, while at
+         runtime `Gio.SettingsSchemaSource.new_from_directory()` opens
+         `schemas/gschemas.compiled` (with only the .xml present it throws
+         "Failed to open file …/gschemas.compiled" directly);
+         `--extra-source=schemas/gschemas.compiled` puts that file in the zip **root
+         directory** (wrong path equals not included), and `--schema=schemas` reports
+         "Can't recursively copy directory" and likewise exits 0. All three verification
+         layers being green still doesn't reveal this, because they all run against the
+         source tree and no layer ever touches the artifact.
+         Two boundaries must be honestly separated: what actually makes the extension fail
+         to load is **the module being dropped**; a missing compiled schema is not
+         necessarily fatal — a directory-installed extension has it generated in place by
+         the installer (all four third-party packages on this machine have a
+         `gschemas.compiled` mtime later than the same-named .xml), and the reason to add it
+         to the zip is that **the artifact must equal the source tree** (a `git clone`
+         install is exactly the source tree), not that "missing it is fatal"
+Change   Release now uniformly goes through `npm run pack`: let the packer do the part it
+         does, then add the compiled schema in with the correct arcname, and finally validate
+         the zip contents against the **declared required manifest**, rejecting dev-time file
+         leakage and exiting 1 when non-compliant. There is only one manifest, and an L0
+         guard cross-checks it against the shipped JS's local imports — forgetting to
+         register a new module goes red immediately (CI can run this layer; the runner has no
+         `gnome-extensions`). The artifact itself goes through another round of L1: after
+         unpacking, hand the directory to `tests/headless-verify.sh`
+Evidence Red→green was actually tested: naive package **2/41**, completed package **41/41**
+         (same harness, only the passed-in directory changed); the L0 guard's two FAIL
+         branches were each forced red individually (omitting a module, omitting the compiled
+         schema), with the other cases still green, showing that it is this one that goes red
+         rather than the whole suite; the guard has its own anti-idle assertion (errors if
+         local imports are fewer than 2). L0 all green, `check:log` green.
+         **Impact scope verified**: the repo has no GitHub release and no tag, and the
+         README's install method is `git clone` of the source tree, so no user ever received
+         an incomplete package — what is broken is a release path not yet taken.
+         Supplementary test: `gnome-extensions install <zip>` on this machine reports
+         "Can't recursively copy directory" for **any** zip, exits 0, and installs nothing (a
+         flat two-file package is the same), so it cannot serve as a release-verification
+         instrument; the artifact can only be verified by unpacking and passing L1. This
+         entry's first draft wrote the missing compiled schema as "users will break", which
+         overstated it, and it was reverted per the boundary above; the correction and the
+         conclusion are both visible in one follow-up commit
+Cost     The consequence of leaving it is "the first zip upload ships an extension that
+         fails to load", and the packer's exit 0 makes people think it succeeded; the artifact
+         was moved to gitignore (regenerable, and must go through the gate again rather than
+         trusting a cache), at the cost of running two extra commands before release
 Commit   6041f3c

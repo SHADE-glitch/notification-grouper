@@ -5,9 +5,17 @@ GNOME Shell 50 extension by SHADE-glitch, with no upstream project to attribute,
 published under GPL-2.0-or-later.
 
 This file is the **rulebook**. Verifiable facts, native line anchors and procedures live in
-[`MAINTENANCE.md`](MAINTENANCE.md); per-phase evidence lives in `reports/`, which is
+[`MAINTENANCE.md`](MAINTENANCE.md); per-phase evidence lives in `docs/reports/`, which is
 gitignored and must never be pushed. Do not copy MAINTENANCE's tables in here — duplicated
 facts are the thing that drifts.
+
+> **Shared standard.** Root file names, the process-draft location (`docs/reports/`), the
+> `CHANGELOG` entry format, CI version pinning and entry commands, the test entry command, and
+> the runtime ignore list are defined once in the machine-wide `STANDARD.md` (outside this
+> repository) and are not restated here.
+>
+> **Push over SSH, never HTTPS.** Verify `git remote get-url --push origin` starts with `git@`
+> before pushing; if it starts with `https://`, fix it first — never push over HTTPS.
 
 ## How we work
 - Solo maintainer, AI-paired, vibe-coded. Four phases: **A** audit with `file:line` evidence
@@ -37,7 +45,7 @@ facts are the thing that drifts.
 - **`shell-version` is `["50"]` on purpose.** The extension wraps methods on the FDO
   notification daemon whose names, signatures and synchronicity were read from GNOME 50.1
   source. Widen the range only after re-reading **every** entry in
-  `MAINTENANCE.md § Shell 内部接口清单` against the target version — not after a smoke test.
+  `MAINTENANCE.md § Shell internal interface inventory` against the target version — not after a smoke test.
 - **Self-degradation is per category, not global.** `checkAttachPoints()` returns
   `attach: false` if either daemon patch point is missing and grouping then stays completely
   inert: never mount one point and leave the other, because a half-mounted patch loses
@@ -201,7 +209,7 @@ facts are the thing that drifts.
   notification hot path and a regression there is user-visible as input lag.
 - Verification tiers are defined by what a claim needs, not by which tool ran: **L0** Node
   only, **L1** throwaway shell, **L2** the user's real session — which nothing here can
-  automate. `MAINTENANCE.md § 三层验证边界` lists what each tier cannot see.
+  automate. `MAINTENANCE.md § The three verification layers` lists what each tier cannot see.
 - The suite needs `tests/fixtures/`. Fixture provenance must stay free of private toolchain
   paths **and of real application names** — the pid and hint structure are the evidence.
 
@@ -284,7 +292,7 @@ facts are the thing that drifts.
   entries; do not hand-copy an aggregate count into the file — `npm run check:log` prints them.
 - Known-but-not-fixed issues do **not** go in `CHANGELOG.md` — they have no commit, because
   nothing was touched. They live in README § What it does not do and § Known limitations, and
-  in `MAINTENANCE.md § 已知不修`.
+  in `MAINTENANCE.md § Known but not fixed`.
 - `Symptom` names the mechanism, never the session: no desktop app names, no notification
   bodies, no private toolchain paths (same rule as fixture provenance above).
 - Run `npm run check:log` before committing docs. It fails on any commit inside the declared

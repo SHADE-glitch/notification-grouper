@@ -242,6 +242,17 @@ harness 里也记下了那些实测才踩得到的坑：GNOME 50 拒绝符号链
 D-Bus 总线名替换为占位符、应用名替换为通用名；发送方 pid 刻意保留，因为"每次调用 pid
 都不同"正是整个扩展赖以成立的前提，fixture 是这件事的证据。
 
+## 🧪 测试
+
+`npm test` 是离线门，不需要 shell：引擎单测（`tests/test-groupEngine.mjs`）加仓库级守卫
+（`tests/repo.test.mjs` —— 中英文档成对、零定时器 grep、挂载点归属、shell 进程内无 Gtk、
+记录不含应用名、`reports/` 未被跟踪）。`npm run check` 与 `npm run check:prefs` 是静态与
+gjs 检查；`npm run check:log` 是 CHANGELOG 覆盖率门。
+
+运行时 harness 会起一个私有 GNOME Shell，**刻意不进 CI**：`npm run verify:headless`、
+`npm run verify:ui-guard`、`npm run verify:provoke`（各自证明什么见
+[开发](#-开发)）。每条命令各自打印自己的条数，本文不抄写。
+
 ## 🩹 对 GNOME 50 通知列表缺陷的兜底
 
 GNOME 50 自己的 `ui/messageList.js` 有一个竞态，会把通知列表**冻住——点什么都没反应**。
