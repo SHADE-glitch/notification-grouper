@@ -13,6 +13,17 @@ node_modules/
 # re-running the gate rather than trusted from a cached copy.
 *.shell-extension.zip
 
+# Machine-wide runtime ignore list (agent-standards/STANDARD.md §7): Python
+# tooling and stray databases can land beside the extension during testing.
+# Keep them out of `git status`; never commit them.
+.venv/
+venv/
+__pycache__/
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+
 # Phase evidence for this maintenance pass: PROFILE/AUDIT/PLAN/VERIFY/STATE.
 # This repo is public and these files may quote raw journal lines, application
 # names or resolved temp paths, so they stay local-only. Nothing under reports/
