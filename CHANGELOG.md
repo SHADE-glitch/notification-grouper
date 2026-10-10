@@ -288,7 +288,11 @@ Symptom  发布路径产出的包是残缺的，而且**残缺得毫无动静**�
          "Failed to open file …/gschemas.compiled"）；`--extra-source=schemas/gschemas.compiled`
          会把该文件放到 zip **根目录**（路径错等于没放），`--schema=schemas` 报
          "Can't recursively copy directory" 之后同样 exit 0。三层验证全绿也照不出这件事，
-         因为它们跑的都是源码树，没有任何一层碰过产物
+         因为它们跑的都是源码树，没有任何一层碰过产物。
+         两条边界要如实分开：真正会让扩展加载失败的是**模块被丢掉**；compiled schema 缺失
+         不必然坏——目录式安装的扩展由安装方就地生成它（本机四个第三方包的
+         `gschemas.compiled` mtime 都晚于同名 .xml），补进 zip 的理由是**产物必须等于源码树**
+         （`git clone` 装的正是源码树），不是"缺它必坏"
 Change   发布统一走 `npm run pack`：先让 packer 做它会做的部分，再按正确的 arcname 补进
          compiled schema，最后拿**声明的必需清单**校验 zip 内容、拒绝开发期文件泄漏，
          不合规 exit 1。清单只有一份，且由 L0 守卫从出厂 JS 的本地 import 反查校验——
@@ -299,7 +303,11 @@ Evidence 红→绿都实测过：naive 包 **2/41**，补齐后的包 **41/41**�
          schema），此时其余用例仍绿，说明红的是这一条而不是整套；守卫自带反空转断言
          （本地 import 少于 2 个就报错）。L0 全绿、`check:log` 绿。
          **影响范围已核实**：仓库没有 GitHub release 也没有 tag，README 的安装方式是
-         `git clone` 源码树，所以没有任何用户拿到过残缺包——坏的是尚未走过的发布路径
+         `git clone` 源码树，所以没有任何用户拿到过残缺包——坏的是尚未走过的发布路径。
+         补测：`gnome-extensions install <zip>` 在本机对**任何** zip 都报 "Can't recursively
+         copy directory"、exit 0、什么都没装（两文件的平包也一样），所以它不能当发布验证
+         仪器，产物只能靠解包后过 L1。本条初稿把 compiled schema 缺失写成"用户会坏"，
+         是说过头了，已按上面的边界改回；修正与结论同在一个后续 commit 里可见
 Cost     留着的后果是"第一次上传 zip 就把一个加载失败的扩展发出去"，而且 packer 的 exit 0
          会让人以为成功；产物改为 gitignore（可再生，且必须重新过门禁而不是信缓存），
          代价是发布前多跑两条命令

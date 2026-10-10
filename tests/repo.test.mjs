@@ -197,7 +197,8 @@ describe("shipped code keeps the promises its comments make", () => {
                 `${mod} is imported by shipped code but declared nowhere in tests/pack.sh — the bundle would load inert`);
 
         assert.ok(extraFiles.has("schemas/gschemas.compiled"),
-            "schemas/gschemas.compiled must be an EXTRA_FILE: the packer only ships the .xml, and the runtime needs the compiled one");
+            "schemas/gschemas.compiled must be an EXTRA_FILE: the packer only ships the .xml, " +
+            "so the bundle would no longer equal the source tree that git clone installs");
     });
 
     it("reports/ stays untracked — phase evidence must not be pushed", () => {

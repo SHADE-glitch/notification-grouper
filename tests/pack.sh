@@ -9,13 +9,22 @@
 #      Verified: the naive bundle ran 2/41 in tests/headless-verify.sh, because
 #      `extension.js` cannot even import its engine.
 #   2. For settings it ships `schemas/<id>.gschema.xml` (driven by metadata.json's
-#      `settings-schema`) but **never** `schemas/gschemas.compiled` — and the runtime
-#      needs the compiled one: with only the .xml present,
-#      `Gio.SettingsSchemaSource.new_from_directory()` throws
-#      "Failed to open file …/gschemas.compiled".
+#      `settings-schema`) but **never** `schemas/gschemas.compiled`, which is the file
+#      `Gio.SettingsSchemaSource.new_from_directory()` actually opens: measured with gjs,
+#      a `schemas/` holding only the .xml throws "Failed to open file …/gschemas.compiled".
+#      A directory-installed extension gets that file generated for it locally — every
+#      third-party extension on this box has a compiled newer than its .xml — so the
+#      reason to ship it here is that the **bundle must equal the source tree**, which is
+#      what `git clone` installs and what already works. Not because a zip without it is
+#      guaranteed to break: the install route that would compile it is not this CLI.
 #   3. `--extra-source=schemas/gschemas.compiled` does add the file, but at the zip
 #      **root**, not under `schemas/` — a wrong path is the same as absent.
 #      And `--schema=schemas` just fails with "Can't recursively copy directory".
+#
+# Do not "verify" any of this with `gnome-extensions install <zip>`: measured on this
+# machine it prints "Can't recursively copy directory" for every zip, including a flat
+# two-file one, and still exits 0 having installed nothing. Verify the artifact by
+# extracting it and running tests/headless-verify.sh against the extracted directory.
 #
 # So: call the packer for what it does right, add what it cannot, then refuse to
 # hand over a bundle that is missing anything. The declared lists below are the same

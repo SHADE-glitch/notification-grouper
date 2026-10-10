@@ -233,13 +233,19 @@ facts are the thing that drifts.
   (`tests/pack.sh`), not a bare `gnome-extensions pack`. Measured on this machine's GNOME 50
   tooling: the packer auto-includes only `metadata.json` / `extension.js` / `prefs.js` /
   `stylesheet*.css`, so every module split out of `extension.js` is dropped **silently**
-  (exit 0), and it ships `schemas/<id>.gschema.xml` but never `schemas/gschemas.compiled` —
-  which is the file `Gio.SettingsSchemaSource.new_from_directory()` actually opens. `--schema=`
-  and a directory `--extra-source` both fail and still exit 0; `--extra-source=schemas/x.compiled`
-  lands the file at the zip **root**. `tests/pack.sh` adds what the packer cannot and refuses to
-  emit a bundle missing any runtime file, so the manifest is the only place the list lives, and
-  `npm test` (which is what CI can run — no `gnome-extensions` on runners) fails if a new local
-  import is not declared there.
+  (exit 0) and the resulting extension cannot even import its engine. It ships
+  `schemas/<id>.gschema.xml` but never `schemas/gschemas.compiled` — that is the file
+  `Gio.SettingsSchemaSource.new_from_directory()` opens, and a directory-installed extension
+  normally has it generated for it (every third-party extension here has a compiled newer than
+  its `.xml`); we ship ours so **the bundle equals the source tree** that `git clone` installs.
+  `--schema=` and a directory `--extra-source` both fail and still exit 0;
+  `--extra-source=schemas/x.compiled` lands the file at the zip **root**.
+  `tests/pack.sh` adds what the packer cannot and refuses to emit a bundle missing any runtime
+  file, so the manifest is the only place the list lives, and `npm test` (which is what CI can
+  run — no `gnome-extensions` on runners) fails if a new local import is not declared there.
+- **`gnome-extensions install <zip>` is not an instrument on this box.** Measured: it prints
+  "Can't recursively copy directory" for *every* zip, including a flat two-file one, exits 0,
+  and installs nothing. Never cite it as evidence that a bundle does or does not work.
 - **The installable artifact gets its own L1 run**: extract the produced zip and run
   `tests/headless-verify.sh <extracted-dir> <label>`. The source tree passing proves nothing
   about the bundle (the undeclared bundle measured 2/41 while the tree ran 41/41).

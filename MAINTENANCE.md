@@ -151,11 +151,15 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 6. **发布物单独过一遍 L1**：`npm run pack` 产出 zip（它自带内容完整性门禁），解包后
    `tests/headless-verify.sh <解包目录> bundle` 必须同样全绿。源码树绿 **不等于** zip 绿：
    GNOME 50 的 `gnome-extensions pack` 是 C 程序，只收固定文件名（`metadata.json` /
-   `extension.js` / `prefs.js` / `stylesheet*.css`），拆出去的模块会被**静默丢掉且 exit 0**；
-   schema 那边它只收 `schemas/<id>.gschema.xml`，而运行时 `new_from_directory()` 打开的是
-   `schemas/gschemas.compiled`（实测：只有 .xml 时直接抛）。`--extra-source=schemas/x.compiled`
-   会把它放在 zip 根目录（路径错＝没放），`--schema=schemas` 报 "Can't recursively copy
-   directory" 后仍然 exit 0。所以这两件事由 `tests/pack.sh` 补齐并校验，名单漂移由 L0 守卫拦。
+   `extension.js` / `prefs.js` / `stylesheet*.css`），拆出去的模块会被**静默丢掉且 exit 0**。
+   schema 那边它只收 `schemas/<id>.gschema.xml`，不收 `schemas/gschemas.compiled`——运行时
+   `new_from_directory()` 打开的正是后者（实测只有 .xml 时直接抛），而目录式安装的扩展通常
+   由安装方就地生成它（本机四个第三方包 `gschemas.compiled` 的 mtime 都晚于同名 .xml）；
+   我们把它打进 zip 是为了**产物等于源码树**（`git clone` 装的正是源码树），不是因为缺它必坏。
+   `--extra-source=schemas/gschemas.compiled` 会把它放在 zip 根目录（路径错＝没放），
+   `--schema=schemas` 报 "Can't recursively copy directory" 后仍然 exit 0。
+   **别用 `gnome-extensions install <zip>` 当验证仪器**：本机实测它对任何 zip（含两文件的平包）
+   都报那句、exit 0、且什么都没装。
 7. 每一步的结果写进 `reports/STATE.md`；结论性的行为变化进 `CHANGELOG.md`（`D-###`）。
 
 ## 功耗与泄漏的固定度量方法
