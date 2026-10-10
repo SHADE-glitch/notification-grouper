@@ -199,6 +199,26 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         const protoOpen = merged ? Object.getPrototypeOf(merged).open : null;
         out.f1Setup = { recordFound: !!recBefore, handlerFound: hidBefore != null,
                         prototypeOpenFound: !!protoOpen };
+        // Observe the restoration WHILE the source is still alive. Source.destroy()
+        // emits 'destroy' before run_dispose() (messageTray.js:605-608), so a handler
+        // attached here sees the end state of disable() — the extension's own signal
+        // already disconnected, the instance open() already back to the prototype's.
+        // Reading those two facts after disable() instead would touch a disposed wrapper
+        // and log a Gjs-CRITICAL whose stack repeats our wrapper frame (the recursion
+        // guard then reports it), which is exactly what an earlier draft of this probe did.
+        const f1Observed = {};
+        if (merged) {
+            merged.connect('destroy', () => {
+                f1Observed.openRestored = merged.open === protoOpen;
+                try {
+                    f1Observed.handlerGone =
+                        GObject.signal_handler_is_connected(merged, hidBefore) === false;
+                } catch {
+                    f1Observed.handlerGone = false;
+                }
+            });
+        }
+        out.f1Observed = f1Observed;
         inst.enable();
         // _attachUiGuards() mounts asynchronously. Without this wait every guard
         // assertion below would observe a layer that was never mounted, i.e. a
@@ -233,19 +253,13 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         say('nativePidCacheCleared', fdo._sourceForPidAndName.size === 0);
         // Identity against the prototype's own method, NOT hasOwnProperty: restoring
         // assigns the same function back as an own property, so hasOwnProperty is true
-        // either way and would be a permanently-green assertion.
+        // either way and would be a permanently-green assertion. Both facts below come
+        // from the destroy-time observer above, so an un-destroyed source (the bug they
+        // guard against) cannot quietly satisfy them by being gone.
         say('mergedOpenRestored',
-            !!merged && !!protoOpen && merged.open === protoOpen);
+            !!merged && !!protoOpen && f1Observed.openRestored === true);
         // Three distinct residues, one per layer the reset used to orphan:
-        let hidState;
-        try {
-            hidState = GObject.signal_handler_is_connected(merged, hidBefore);
-        } catch {
-            // A disposed object answers this with a critical, not a boolean. "Gone"
-            // is the outcome we want, so treat the throw as detached.
-            hidState = false;
-        }
-        say('destroyHandlerDetached', hidState === false);
+        say('destroyHandlerDetached', f1Observed.handlerGone === true);
         say('guardsRestoredToPristine',
             ml.Message.prototype.unexpand === pUnexpand &&
             ml.NotificationMessageGroup.prototype.collapse === pCollapse &&
@@ -279,6 +293,49 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         say('capTrimmedTo', titled('CapProbe').reduce(
             (m, s) => Math.max(m, s.notifications.length), 0));
         say('capIsOneSource', titled('CapProbe').length);
+
+        // 1a) the reason we hand the destroyed cards. FdoNotification's own 'destroy'
+        //     handler maps that reason onto the FDO NotificationClosed signal
+        //     (EXPIRED -> 1, DISMISSED -> 2, SOURCE_CLOSED -> 3, anything else -> 4),
+        //     so getting it wrong tells the *sender* that the user dismissed a card it
+        //     never touched. The signal itself cannot be observed from this process
+        //     (a bus does not deliver a broadcast back to its sender), hence observing
+        //     the input of that mapping rather than its output.
+        const { NotificationDestroyedReason: NDR } =
+            await import('resource:///org/gnome/shell/ui/messageTray.js');
+        const capSource = titled('CapProbe')[0];
+        const closedReasons = [];
+        for (const n of capSource.notifications)
+            n.connect('destroy', (self_, reason) => closedReasons.push(reason));
+        st.set_int('max-per-source', 2);   // trimming an existing stack
+        await sleep(400);
+        N('CapProbe', 'evict one more');
+        await sleep(600);
+        say('evictReasons', [...new Set(closedReasons)].join(','));
+        say('evictReasonIsExpired',
+            closedReasons.length > 0 &&
+            closedReasons.every(r => r === NDR.EXPIRED));
+        say('capTrimImmediateAndSendsAgree',
+            titled('CapProbe').length === 1 &&
+            titled('CapProbe')[0].notifications.length === 2);
+        st.set_int('max-per-source', 3);
+
+        // 1b) endpoints of the schema range. 1 is "only the newest card", 10 must be
+        //     indistinguishable from native MAX_NOTIFICATIONS_PER_SOURCE.
+        st.set_int('max-per-source', 1);
+        await sleep(200);
+        await sendWait('CapOne', 3, 400);
+        await sleep(600);
+        say('capOneSources', titled('CapOne').length);
+        say('capOneKeeps', titled('CapOne').reduce(
+            (m, s) => Math.max(m, s.notifications.length), 0));
+        st.set_int('max-per-source', 10);
+        await sleep(200);
+        await sendWait('CapTen', 13, 250);
+        await sleep(800);
+        say('capTenKeeps', titled('CapTen').reduce(
+            (m, s) => Math.max(m, s.notifications.length), 0));
+        say('capTenSources', titled('CapTen').length);
 
         // 2) grouping off: sends must NOT merge (one source per pid)
         st.set_boolean('grouping-enabled', false);
@@ -445,6 +502,19 @@ checks = [
      'longest source holds %r' % d.get('capTrimmedTo')),
     ('cap still merges into one source', d.get('capIsOneSource') == 1,
      'got %r sources — trimming must not split the group' % d.get('capIsOneSource')),
+    # ---- trimming must not lie to the sender about WHY a card left ----
+    ('evicted cards report EXPIRED',   d.get('evictReasonIsExpired') is True,
+     'reasons seen: %r — anything but EXPIRED(1) tells the sender the user dismissed it'
+     % d.get('evictReasons')),
+    ('lowering the cap trims at once', d.get('capTrimImmediateAndSendsAgree') is True,
+     'a cap change must shrink the live stack before the next notification arrives'),
+    ('cap=1 keeps one card, still one source',
+     d.get('capOneKeeps') == 1 and d.get('capOneSources') == 1,
+     'keeps %r across %r sources' % (d.get('capOneKeeps'), d.get('capOneSources'))),
+    ('cap=10 matches the native ceiling', d.get('capTenKeeps') == 10 and
+                                          d.get('capTenSources') == 1,
+     '13 sends left %r cards in %r sources (native would keep 10)'
+     % (d.get('capTenKeeps'), d.get('capTenSources'))),
     ('grouping off stops merging',     d.get('groupingOffSourceCount') == 2,
      'got %r sources for 2 sends (2 expected: per-pid, native behaviour)' % d.get('groupingOffSourceCount')),
     ('isolate-apps keeps that app apart', d.get('isolatedSourceCount') == 2,

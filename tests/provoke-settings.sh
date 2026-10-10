@@ -38,6 +38,7 @@ CASES=(
 "guards-off-detach-removed	            UiWorkarounds.detach();	            /* provocation: not detached */;	ui-guards off detaches them"
 "ui-guards-ignored	                this._uiGuardsEnabled = s.get_boolean('ui-guards');	                this._uiGuardsEnabled = true;	ui-guards off detaches them"
 "settings-not-disconnected	        for (const id of this._settingsHids)	        for (const id of [])	disable disconnects settings"
+"post-push-trim-removed	                const served = self._pending && self._pending.servedSource;	                const served = null;	max-per-source=3 trims to 3"
 )
 
 for entry in "${CASES[@]}"; do

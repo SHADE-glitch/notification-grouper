@@ -204,9 +204,13 @@ export default class NotificationGrouperExtension extends Extension {
     }
 
     /**
-     * 镜像原生 messageTray.js:577-580 的削位语义：原生在 push 之前
-     * `while (length >= MAX) destroy(oldest)`，于是可见总数恰好是 MAX。
-     * native push 之前调用要传 cap-1，事后修剪传 cap。
+     * 把堆叠削到 keep 条，镜像原生 messageTray.js:577-579 的语义（销毁最旧、
+     * reason=EXPIRED）。调用时机只有两处，且都必须保证**削完还剩至少一条**：
+     *  1. NotifyAsync 里原生 push **之后**，keep = max-per-source（length 此时是
+     *     cap+1，于是可见条数正好是 cap）；
+     *  2. 设置项被调小时，对现存堆叠立刻修剪，keep = 新 cap。
+     * keep=0 是禁止的：原生见到底层空掉就 `this.destroy()`（messageTray.js:569-570），
+     * 那个源随后会被原生继续 push，直接踩到已 dispose 的对象。
      * reason 必须是 EXPIRED：FDO 侧按它决定发给应用的是 NotificationClosed(EXPIRED)
      * 还是 (DISMISSED)（notificationDaemon.js:178-195），传错等于替用户"手动关闭"了它。
      * cap == NATIVE_MAX_PER_SOURCE 时循环条件与原生等价，不必特判。
@@ -308,6 +312,16 @@ export default class NotificationGrouperExtension extends Extension {
             try {
                 return self._orig.notify.call(this, params, invocation);
             } finally {
+                // 削位必须在 push **之后**。原生在源的最后一条通知被销毁时会连带
+                // 销毁整个源（messageTray.js:569-570），若在 push 前把它清空，紧接着
+                // 的原生 addNotification 就在操作一个已 dispose 的对象——实测
+                // Gjs-CRITICAL "has been already disposed"，栈里我们的包装帧在下面
+                // 两帧（notificationDaemon.js:266 → :367 → messageTray.js:592）。
+                // NotifyAsync 是同步的，所以返回时通知已经进了源，这里削到 cap 条
+                // 既精确又绝不会把源清空（cap >= 1，length = cap + 1）。
+                const served = self._pending && self._pending.servedSource;
+                if (served)
+                    self._evictTo(served, self._maxPerSource);
                 self._pending = null;
             }
         };
@@ -336,8 +350,11 @@ export default class NotificationGrouperExtension extends Extension {
             const key = pend.res.groupKey;
             const rec = self._shared.get(key);
             if (rec) {
-                // 复用已有源：原生马上就要往它 push 这一条，先按本扩展的上限削位
-                self._evictTo(rec.source, self._maxPerSource - 1);
+                // 复用已有源。这里**不能**削位：削到 cap-1 在 cap=1 时会把源清空，
+                // 而原生见到底层空掉就 self.destroy()（messageTray.js:569-570），
+                // 紧接着的 addNotification 会踩到已 dispose 的对象。只登记"这条被
+                // 我接管了"，削位交给 NotifyAsync 包裹层在 push 之后做。
+                pend.servedSource = rec.source;
                 return rec.source;
             }
             const source = self._orig.getSource.call(this, sender, pid, appName);
@@ -375,7 +392,8 @@ export default class NotificationGrouperExtension extends Extension {
                 }
             });
             self._shared.set(key, { source, hid, origOpen, patchedOpen });
-            self._evictTo(source, self._maxPerSource - 1);
+            // 新建源同理：削位不在这里做，登记后交给 push 之后的那段。
+            pend.servedSource = source;
             return source;
         };
 
