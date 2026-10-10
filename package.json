@@ -5,6 +5,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "node tests/test-groupEngine.mjs && node tests/repo.test.mjs",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-exclude='**/tests/**' --test tests/test-groupEngine.mjs tests/repo.test.mjs",
     "check": "node --check extension.js groupEngine.js uiWorkarounds.js prefs.js",
     "bench": "node scripts/bench.mjs",
     "check:prefs": "gjs tests/check-prefs-props.js",

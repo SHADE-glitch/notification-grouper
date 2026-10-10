@@ -19,3 +19,6 @@ jobs:
           node-version: 20
       - run: npm test
       - run: npm run check:log
+      # Coverage reading (not a gate): Node's built-in coverage over the two
+      # tests/*.mjs suites. No threshold, so it cannot fail the run.
+      - run: npm run test:coverage
