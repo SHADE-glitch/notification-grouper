@@ -72,6 +72,31 @@ describe("documentation conventions hold", () => {
         .filter(f => f.endsWith(".zh-CN.md"))
         .map(zh => [zh.replace(/\.zh-CN\.md$/, ".md"), zh]);
 
+    // HTTP status codes must agree across a pair: a code named on one side alone is a
+    // fact that silently contradicts the other language. A code counts only in an HTTP
+    // context (or quoted in backticks), so a plain number like `500 ms` never counts.
+    const STATUS = "200|201|202|204|206|301|302|303|304|307|308|400|401|402|403|404|405|406|"
+        + "407|408|409|410|411|412|413|414|415|416|417|418|421|422|423|424|425|426|428|"
+        + "429|431|451|499|500|501|502|503|504|505|506|507|508|510|511";
+    const STATUS_RE = new RegExp(
+        "(?:HTTP|status|状态码|返回|returns?|responds?|replies?|answers?|gives?)[^\\n]{0,30}?\\b(" + STATUS + ")\\b"
+        + "|`(" + STATUS + ")`"
+        + "|`(" + STATUS + ")\\s*\\+", "gi");
+
+    it("the bilingual pairs name the same HTTP status codes", () => {
+        const codes = (text) => {
+            const out = new Set();
+            for (const m of text.matchAll(STATUS_RE))
+                out.add(m[1] || m[2] || m[3]);
+            return [...out].sort();
+        };
+        for (const [en, zh] of pairs) {
+            const ce = codes(read(en)), cz = codes(read(zh));
+            assert.deepEqual(ce, cz,
+                `${en} names [${ce}] but ${zh} names [${cz}] — the two languages disagree on a status code`);
+        }
+    });
+
     it("every Chinese doc has an English twin with the same section count", () => {
         assert.ok(pairs.length >= 1, "no bilingual pairs found");
         for (const [en, zh] of pairs) {
