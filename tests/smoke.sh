@@ -75,6 +75,29 @@ fi
 
 line "日志（本轮会话）"
 LOG=$(journalctl --user -b 2>/dev/null | grep -iE 'notification-grouper|messageList' || true)
+# 这两条是本轮踩过坑之后加的：
+#   - 「本轮有没有 enable 行」决定下面手工项验的是不是当前磁盘上的代码；
+#     disable/enable 不重载 ES 模块，改了 JS 却没重新登录时，扩展照样 ACTIVE。
+#   - 「already disposed」是削位时机错的特征串（max-per-source=1 曾经触发），
+#     产品路径里出现它就该当成缺陷，不是噪声。
+if journalctl --user -b 2>/dev/null | grep -q 'notification-grouper] enabled, attached patches'; then
+    ok "本轮会话里扩展确实被加载过（否则下面验的还是旧代码）"
+else
+    bad "本轮 journal 没有 enable 行：磁盘代码可能没被加载，需要登出再登录"
+fi
+# 「already disposed」是 GNOME 里的**通用串**，不是我们的特征串：本 boot 实测有 5 条，
+# 全是 St.Adjustment / Gjs_ui_layout_UiActor，栈停在 GObject.js:710 ← signalTracker.js，
+# 时间就在旧 shell 退出、新 shell 起来那一秒——拿它当产品判据会诬告。
+# 我们那个缺陷的特征串是**通知源这个类**被 dispose（FdoNotificationDaemonSource），
+# 判据必须带上类名。
+DISPOSED=$(journalctl --user -b 2>/dev/null | grep -c 'notificationDaemon_FdoNotificationDaemonSource.*already disposed')
+if [ "${DISPOSED:-0}" -eq 0 ]; then
+    ok "没有通知源被 dispose 的行（削位时机正确）"
+else
+    bad "$DISPOSED 条 FdoNotificationDaemonSource already disposed：削位把合并源清空过（原生见空源自毁）"
+fi
+OTHER=$(journalctl --user -b 2>/dev/null | grep 'already disposed' | grep -vc 'notificationDaemon_FdoNotificationDaemonSource')
+[ "${OTHER:-0}" -eq 0 ] || echo "  （另有 $OTHER 条别的类的 disposed 行，属 shell 自身噪声，不参与判定）"
 if [ -z "$LOG" ]; then
     ok "没有 notification-grouper / messageList 相关行"
 else
@@ -108,12 +131,18 @@ cat <<'TXT'
   3. 卡死回归：把一个合并组反复展开/折叠 ~20 次，中途让它自然过期几张。
      预期：列表始终有反应；journal 无 `TypeError … expansion`、无 messageList JS ERROR。
 
+  0. 为什么这几条必须由你眼睛看：真会话的 org.gnome.Shell.Eval 是关的（要 unsafe-mode），
+     代理在实况里数不到源数量，只能验到「设置链路有没有通知到 shell」这一层（journal 有
+     grouping off/on 这类行）；「合并成一个栈 / 削位 / 例外名单不合并」必须看托盘。
+
   4. 设置页（gnome-extensions prefs notification-grouper@local）——L0.5 的内省门只能证明
      成员存在，渲染与交互只能在这里看：
      - 两个开关行、一个 1..10 的数字行、一个可展开的例外名列表行都**渲染出来**了
      - 拨动开关不需要重新启用扩展：立刻发通知即可看到分组开/关的差别
      - 例外表里填一个真实存在的发送方名字，它就该从合并组里退出去（注意大小写/.desktop 不敏感）
      - "恢复默认"把四个键一次还原
+     - 每堆保留卡片数拨到 **1**：合并栈应当只留最新一张且 journal 无 already disposed
+       （这是本轮修掉的缺陷点，v9 之前会踩到已销毁的源）
      - 深色与浅色主题下都看一眼，不要有你自己的控件混进原生样式
 
   5. 禁用后残留：关掉扩展后

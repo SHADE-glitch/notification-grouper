@@ -1,5 +1,7 @@
 #!/bin/bash
-# tests/provoke-settings.sh — 证明"设置项断言"真的接着行为，而不是恒绿。
+# tests/provoke-settings.sh — 证明"用户可见行为"的门禁断言真的接着行为，而不是恒绿。
+# 覆盖设置面四个键，也覆盖削位时机与发给发送方的 reason：凡是"实现空转也照样绿"
+# 的那类断言，都该在这里有一条对应的变异。
 #
 # 做法：把整棵树复制到 /tmp，在副本里把某个设置的读取点**改成常量**（即"设置被
 # 忽略"），跑同一个 tests/headless-verify.sh，要求**对应那条断言变红**。判定只看
@@ -39,6 +41,7 @@ CASES=(
 "ui-guards-ignored	                this._uiGuardsEnabled = s.get_boolean('ui-guards');	                this._uiGuardsEnabled = true;	ui-guards off detaches them"
 "settings-not-disconnected	        for (const id of this._settingsHids)	        for (const id of [])	disable disconnects settings"
 "post-push-trim-removed	                const served = self._pending && self._pending.servedSource;	                const served = null;	max-per-source=3 trims to 3"
+"evict-reason-dismissed	            oldest.destroy(NotificationDestroyedReason.EXPIRED);	            oldest.destroy(NotificationDestroyedReason.DISMISSED);	FDO sees EXPIRED for evicted cards"
 )
 
 for entry in "${CASES[@]}"; do

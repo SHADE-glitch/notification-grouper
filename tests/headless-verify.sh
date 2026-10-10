@@ -71,7 +71,7 @@ STAGED="$V/xdg-$LABEL/gnome-shell/extensions/$UUID"
 WD=wayland-$LABEL
 RES="$V/res-$LABEL.json"
 
-rm -rf "$V/xdg-$LABEL" "$RES" "$V/log-$LABEL.txt"
+rm -rf "$V/xdg-$LABEL" "$RES" "$V/log-$LABEL.txt" "$V/dbusmon-$LABEL.txt"
 mkdir -p "$V/xdg-$LABEL/gnome-shell/extensions"
 cp -a "$EXT" "$STAGED"
 rm -rf "$STAGED/.git"
@@ -84,6 +84,7 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
     const Gio = imports.gi.Gio;
     const say = (k, v) => { out[k] = v; };
     const EXTDIR = '$STAGED';
+    const MON = '$V/dbusmon-$LABEL.txt';
     try {
         const Main = await import('resource:///org/gnome/shell/ui/main.js');
         const ml = await import('resource:///org/gnome/shell/ui/messageList.js');
@@ -286,6 +287,18 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         };
         say('settingsHandlerCount', inst._settingsHids.length);
 
+        // FDO 端到端：原生把 Notification 的 destroy reason 映射成发出去的
+        // NotificationClosed 的 reason（notificationDaemon.js:178-195）。信号是 shell
+        // 自己广播的，而**总线不会把广播信号送回给发送者**，所以在 shell 进程里
+        // subscribe 永远收不到——必须起一个同总线的小监听。监听从削位阶段之前开始，
+        // 期间没有任何别的关闭来源：这些通知是 urgency=critical（不超时自动消失），
+        // 唯一会发 NotificationClosed 的就是我们和被原生削掉的最旧卡片。
+        const monArg = 'type=signal,interface=org.freedesktop.Notifications,' +
+            'member=NotificationClosed';
+        const [, monPid] = GLib.spawn_async(null,
+            ['/bin/sh', '-c', 'exec dbus-monitor ' + monArg + ' > ' + MON + ' 2>&1'],
+            null, GLib.SpawnFlags.DEFAULT, null, null);
+
         // 1) max-per-source lowered to 3: five sends, three survive, oldest dropped
         st.set_int('max-per-source', 3);
         await sendWait('CapProbe', 5, 400);
@@ -336,6 +349,26 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         say('capTenKeeps', titled('CapTen').reduce(
             (m, s) => Math.max(m, s.notifications.length), 0));
         say('capTenSources', titled('CapTen').length);
+
+        // 关掉监听并读它看到的东西。0 条不是产品红，是仪器没接上——FAIL 文案里带着
+        // 计数，两种情况一眼可分。
+        GLib.spawn_async(null,
+            ['/bin/sh', '-c', 'kill ' + monPid + ' 2>/dev/null; true'],
+            null, GLib.SpawnFlags.DEFAULT, null, null);
+        await sleep(400);
+        let monTxt = '';
+        try {
+            monTxt = new TextDecoder().decode(GLib.file_get_contents(MON)[1]);
+        } catch (e) {
+            out.monReadFailed = String(e && e.message ? e.message : e);
+        }
+        const monReasons = [...monTxt.matchAll(
+            /member=NotificationClosed\s+uint32\s+(\d+)\s+uint32\s+(\d+)/g)
+        ].map(m => Number(m[2]));
+        say('fdoClosedObserved', monReasons.length);
+        say('fdoClosedReasons', monReasons.join(','));
+        say('fdoClosedAllExpired',
+            monReasons.length > 0 && monReasons.every(r => r === 1));
 
         // 2) grouping off: sends must NOT merge (one source per pid)
         st.set_boolean('grouping-enabled', false);
@@ -515,6 +548,12 @@ checks = [
                                           d.get('capTenSources') == 1,
      '13 sends left %r cards in %r sources (native would keep 10)'
      % (d.get('capTenKeeps'), d.get('capTenSources'))),
+    # ---- the reason must survive the trip onto the bus, not just inside the shell ----
+    ('FDO sees EXPIRED for evicted cards', d.get('fdoClosedAllExpired') is True,
+     'captured %r NotificationClosed (reasons %r) — 0 means the monitor never attached '
+     '(instrument failure, not a product verdict); anything but 1 means we told the '
+     'sender something else happened'
+     % (d.get('fdoClosedObserved'), d.get('fdoClosedReasons'))),
     ('grouping off stops merging',     d.get('groupingOffSourceCount') == 2,
      'got %r sources for 2 sends (2 expected: per-pid, native behaviour)' % d.get('groupingOffSourceCount')),
     ('isolate-apps keeps that app apart', d.get('isolatedSourceCount') == 2,
