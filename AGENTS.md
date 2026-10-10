@@ -190,6 +190,7 @@ facts are the thing that drifts.
   (bilingual doc pair, zero-timer grep, patch-point ownership, no-Gtk-in-shell-process,
   records-free-of-app-names, `reports/` untracked). `node tests/test-groupEngine.mjs` and
   `node tests/repo.test.mjs` remain runnable bare and must stay dependency-free.
+- `npm run test:coverage` — Node's built-in coverage (`--experimental-test-coverage`) over the two `tests/*.mjs` suites, test files excluded. A **reading, not a gate** (no threshold); it can only show `groupEngine.js` — `extension.js`, `prefs.js` and `uiWorkarounds.js` are shell-bound and invisible to Node.
 - `npm run check` — `node --check` over every shipped JS file. `npm run check:prefs` — the
   Adw member gate (needs `gjs`, no shell). `npm run check:log` — CHANGELOG coverage gate.
 - `npm run pack` — build the installable zip **and** gate its contents (needs the
