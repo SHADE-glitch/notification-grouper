@@ -299,3 +299,19 @@ facts are the thing that drifts.
 - Run `npm run check:log` before committing docs. It fails on any commit inside the declared
   coverage window that touched a watched code path without being cited by an entry. Deliberate
   scope-outs belong outside the window, never inside an ad-hoc skip list.
+
+## Listed on the GitHub profile
+
+This repo is listed on the owner's profile front page (`SHADE-glitch/SHADE-glitch`). That page lives
+in a **separate repository and never updates itself** — when a fact it states about this repo
+changes, update the profile README in the same round. The profile's own `AGENTS.md` is the
+authoritative rulebook; its guard `scripts/check-profile.mjs` must keep passing.
+
+- **Rename / transfer / delete** — the profile link dies; fix the row.
+- **Purpose drift / origin** — the profile's one-line description and its "original extension"
+  wording must still be true.
+- **LICENSE change** — the profile's license badge must equal this repo's `LICENSE`.
+- **GNOME target change** — the `GNOME Shell` badge must equal `metadata.json`'s `shell-version`.
+- **Freeze / archive / upstream-frozen** — say so on the profile; never leave a stale "maintained".
+- **Public ↔ private** — a repo that goes private must be **delisted** (only the two whitelisted
+  private apps may stay, and they are not this one).
