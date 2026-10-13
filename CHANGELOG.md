@@ -441,3 +441,31 @@ Change   Added the seven missing entries under a labeled block citing STANDARD �
 Evidence L0: `git check-ignore -v .venv/x __pycache__/x.py foo.db .pytest_cache/x` now names `.gitignore` for all four paths (before the change none resolved); `node tests/repo.test.mjs` 9/9; `npm run check:log` PASS
 Cost     The block is a rule, not a check — only `reports/` is pinned by `tests/repo.test.mjs`, so the full list can still drift. No `.venv` or `*.db` is produced by this extension's tooling, so the entries are prophylactic
 Commit   79adcd3
+
+### D-020 · 2026-10-13 · guard · v9
+Symptom  `CONVENTIONS.md` (machine-wide) asks a dimension-A repository's `AGENTS.md` to name its
+         dimension. This one pointed at `STANDARD.md` for the rules but never said which dimension
+         those rules were, so a reader could not tell A was a floor with its own README whitelist
+         rather than a shared list. Nothing asserted the finalized root-file layer either:
+         `LICENSE`, the manifest, the `MAINTENANCE` pair, `docs/` and `.github/workflows/` could
+         each be deleted and the whole suite would stay green
+Change   `AGENTS.md` gains one blockquote naming dimension A and pointing at `CONVENTIONS.md`; the
+         existing "Shared standard" block below it is untouched and no rule text is restated.
+         `tests/repo.test.mjs` gains `describe("dimension-A layout invariants hold")` with four
+         cases: the root-file layer present at the root, exactly one manifest and it is
+         `package.json`, no `AGENTS.zh-CN.md` (dimension B's shape), the dimension pointer present
+         with none of the standard's own section headings reproduced, and the `STANDARD.md` §7
+         ignore list present in `.gitignore` with no tracked runtime file and nothing tracked
+         under `reports/` or `docs/reports/`. Every failure names the file and where it goes
+Evidence L0: `node tests/repo.test.mjs` **13/13** (4 of them from this file), `node
+         tests/test-groupEngine.mjs` 15/15, `npm run check:log` PASS. Negative run: `LICENSE`
+         moved out of the tree with `git mv`, then the suite — red with `- LICENSE: create this file
+         at the repository root`; moved back, `git status --porcelain LICENSE` empty afterwards
+Cost     It reads the working tree, so a file on disk but uncommitted passes — the same limitation
+         the anchor gate has. It asserts presence, not content: a `MAINTENANCE` pair that exists but
+         has drifted is not this check's business. No network and no read of agent-standards — that
+         repository is private and this CI cannot see it, so the rules it carries are restated as
+         assertions here. The plural `tests/` is kept on purpose, so the block lives in the
+         existing `tests/repo.test.mjs` rather than a new file the two-step `npm test` chain would
+         not pick up
+Commit   0d1fb74
