@@ -263,3 +263,115 @@ describe("shipped code keeps the promises its comments make", () => {
             `only ${RECORDS.length} record files found — the sweep lost its target set`);
     });
 });
+
+// ── dimension-A layout guard ───────────────────────────────────────────────────
+// CONVENTIONS.md and STANDARD.md live in a private repository that this
+// repository's CI cannot read, so the dimension-A rules they carry are restated
+// here as executable assertions. Nothing is fetched; only this tree is inspected,
+// so the guard belongs to the offline CI layer and runs unchanged on a bare clone.
+//
+// The reports/ half of the runtime rule is already enforced by
+// "reports/ stays untracked" in the block above; this one adds the root layer, the
+// dimension pointer, and the rest of the §7 ignore list.
+//
+// Every assertion says what is missing AND where it belongs, so a red run tells the
+// next session how to fix itself instead of only that something broke.
+describe("dimension-A layout invariants hold", () => {
+    const git = (...args) => execFileSync("git", args, { cwd: REPO, encoding: "utf8" }).trim();
+
+    // STANDARD.md §1, dimension A: the finalized layer. A plugin's manifest is
+    // package.json, and exactly one manifest may exist.
+    const ROOT_FILES = [
+        "AGENTS.md",
+        "README.md",
+        "README.zh-CN.md",
+        "CHANGELOG.md",
+        "MAINTENANCE.md",
+        "MAINTENANCE.zh-CN.md",
+        "LICENSE",
+        ".gitignore",
+        "package.json",
+    ];
+    const ROOT_DIRS = ["docs", ".github/workflows"];
+
+    // §7: the runtime ignore list, the minimum every repository carries.
+    const IGNORE_ENTRIES = [
+        ".venv/",
+        "venv/",
+        "__pycache__/",
+        "*.db",
+        "*.db-wal",
+        "*.db-shm",
+        ".pytest_cache/",
+    ];
+
+    // §4: once aligned, AGENTS.md states its dimension in one line and points at
+    // the right page. These are the section headings of CONVENTIONS.md and
+    // STANDARD.md — a match means AGENTS.md restated the standard's body instead
+    // of referencing it, which the layout audit scores as a missing guard.
+    const STANDARD_HEADINGS = [
+        "Repositories governed by this standard",
+        "Root files (the finalized layer)",
+        "Language policy",
+        "Process-draft location",
+        "CHANGELOG format",
+        "Test entry commands",
+        "Runtime ignore list",
+        "Conflict rule",
+        "Remotes and pushing",
+        "The three dimensions",
+        "The shared common core",
+        "What each dimension requires",
+        "Unify the common core",
+        "Where a repository points",
+    ];
+
+    it("the finalized root-file layer is present and in the right place", () => {
+        const missingFiles = ROOT_FILES.filter((rel) => !fs.existsSync(path.join(REPO, rel)));
+        const missingDirs = ROOT_DIRS.filter((rel) => {
+            const p = path.join(REPO, rel);
+            return !fs.existsSync(p) || !fs.statSync(p).isDirectory();
+        });
+        const detail = [
+            ...missingFiles.map((f) => `  - ${f}: create this file at the repository root`),
+            ...missingDirs.map((d) => `  - ${d}/: create this directory at the repository root`),
+        ].join("\n");
+        assert.equal(detail, "",
+            `the dimension-A root layer is incomplete; the repository root is the only correct location:\n${detail}`);
+
+        const manifests = ["package.json", "pyproject.toml"].filter((m) => fs.existsSync(path.join(REPO, m)));
+        assert.deepEqual(manifests, ["package.json"],
+            `dimension A of a GNOME Shell extension carries exactly one manifest and it is package.json, but this repository has ${manifests.join(" + ") || "none"}`);
+
+        assert.ok(!fs.existsSync(path.join(REPO, "AGENTS.zh-CN.md")),
+            "AGENTS.zh-CN.md is the bilingual application shape, not this one — AGENTS.md is English-only here because every AGENTS.md outside the language whitelist is English");
+    });
+
+    it("AGENTS.md names its dimension in one line instead of restating the standard", () => {
+        const agents = read("AGENTS.md");
+        assert.match(agents, /^\s*>\s*\*\*Dimension\.\*\*/m,
+            "AGENTS.md opens with no one-line dimension pointer. Add a blockquote line naming this repository as dimension A of the machine-wide CONVENTIONS.md, immediately above the existing shared-standard blockquote — name it, do not paste the rules");
+        assert.match(agents, /CONVENTIONS\.md/,
+            "the dimension pointer must name CONVENTIONS.md (outside this repository), which is where the dimension and its requirements are defined");
+        for (const heading of STANDARD_HEADINGS) {
+            assert.ok(!agents.includes(heading),
+                `AGENTS.md restates the shared standard: "${heading}" is a section heading of CONVENTIONS.md or STANDARD.md. Keep the rule in the standard and leave a pointer here, so the two copies cannot drift`);
+        }
+    });
+
+    it("the §7 runtime ignore list holds and no runtime state is tracked", () => {
+        const rules = read(".gitignore")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line && !line.startsWith("#"));
+        const missing = IGNORE_ENTRIES.filter((entry) => !rules.includes(entry));
+        assert.deepEqual(missing, [],
+            `.gitignore lost ${missing.length} machine-wide runtime entr${missing.length === 1 ? "y" : "ies"} (${missing.join(", ")}). Add each as its own uncommented line — a stray virtualenv or database beside the extension would otherwise become committable`);
+
+        const trackedRuntime = git("ls-files", "-z").split("\0").filter(Boolean).filter((f) =>
+            /(^|\/)(__pycache__|\.pytest_cache|\.venv|venv)\//.test(f) ||
+            /\.db(-wal|-shm|-journal)?$/.test(f) || /\.shell-extension\.zip$/.test(f));
+        assert.deepEqual(trackedRuntime, [],
+            "runtime state is tracked; untrack it with `git rm --cached` and let the ignore rules take over, otherwise a database, a cache directory or the packed zip reaches the public remote");
+    });
+});
