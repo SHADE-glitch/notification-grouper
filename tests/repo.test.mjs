@@ -306,9 +306,10 @@ describe("dimension-A layout invariants hold", () => {
     ];
 
     // §4: once aligned, AGENTS.md states its dimension in one line and points at
-    // the right page. These are the section headings of CONVENTIONS.md and
-    // STANDARD.md — a match means AGENTS.md restated the standard's body instead
-    // of referencing it, which the layout audit scores as a missing guard.
+    // the right page. These are the section headings of the standard —
+    // CONVENTIONS.md, STANDARD.md and dimensions/a.md — a match means AGENTS.md
+    // restated the standard's body instead of referencing it, which the layout
+    // audit scores as a missing guard.
     const STANDARD_HEADINGS = [
         "Repositories governed by this standard",
         "Root files (the finalized layer)",
@@ -319,9 +320,10 @@ describe("dimension-A layout invariants hold", () => {
         "Runtime ignore list",
         "Conflict rule",
         "Remotes and pushing",
+        "Audit ruleset (anchor)",
         "The three dimensions",
         "The shared common core",
-        "What each dimension requires",
+        "Where each dimension's detail lives",
         "Unify the common core",
         "Where a repository points",
     ];
