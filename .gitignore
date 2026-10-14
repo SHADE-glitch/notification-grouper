@@ -13,7 +13,7 @@ node_modules/
 # re-running the gate rather than trusted from a cached copy.
 *.shell-extension.zip
 
-# Machine-wide runtime ignore list (agent-standards/STANDARD.md §7): Python
+# Machine-wide runtime ignore list (~/.agents/standards/STANDARD.md §4): Python
 # tooling and stray databases can land beside the extension during testing.
 # Keep them out of `git status`; never commit them.
 .venv/
