@@ -469,3 +469,18 @@ Cost     It reads the working tree, so a file on disk but uncommitted passes —
          existing `tests/repo.test.mjs` rather than a new file the two-step `npm test` chain would
          not pick up
 Commit   0d1fb74
+
+### D-021 · 2026-10-14 · fix · v9
+Symptom  `tests/repo.test.mjs` requires a `docs/` directory at the repository root, but nothing
+         under `docs/` was ever tracked: its only content is `docs/reports/`, which the unanchored
+         `reports/` rule ignores, so a fresh clone has no `docs/`. The guard passed on the
+         maintainer's tree and failed in CI — red on every push since it landed (`0d1fb74`)
+Change   Track `docs/README.md`. It states the layout: `docs/reports/` is per-phase evidence that
+         is local-only and must never be tracked, and this `README.md` exists because git cannot
+         carry an empty directory. The guard is unchanged
+Evidence L0: `git ls-files docs` now prints `docs/README.md`; `node tests/repo.test.mjs` 13/13,
+         `node tests/test-groupEngine.mjs` 15/15 and `npm run check:log` PASS. Before the fix CI was
+         red with `- docs/: create this directory at the repository root`
+Cost     One tracked file, link-free and section-free so the doc gates stay silent; `docs/reports/`
+         stays untracked as the guard requires
+Commit   a8fa855
