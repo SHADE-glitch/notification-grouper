@@ -9,18 +9,10 @@ This file is the **rulebook**. Verifiable facts, native line anchors and procedu
 gitignored and must never be pushed. Do not copy MAINTENANCE's tables in here — duplicated
 facts are the thing that drifts.
 
-> **Dimension.** This repository is dimension **A — open source, strict** in the machine-wide
-> `CONVENTIONS.md` (outside this repository); the shared rules live in `STANDARD.md` and the
-> dimension-A detail in `~/.agents/standards/dimensions/a.md`.
->
-> **Shared standard.** Root file names, the process-draft location (`docs/reports/`), the
-> `CHANGELOG` entry format and the runtime ignore list are defined once in the machine-wide
-> `STANDARD.md` (outside this repository); the dimension-A rules — the language policy, CI
-> version pinning and entry commands, and the test entry command — live in
+> **Dimension.** A — open source (strict), per `CONVENTIONS.md` §0; the shared rules live once in
+> `~/.agents/standards/STANDARD.md` (§1 root files, §2 process drafts, §3 CHANGELOG entries,
+> §4 runtime ignore list, §6 remotes/pushing, §8 profile listing) and the dimension-A detail in
 > `~/.agents/standards/dimensions/a.md`. Neither is restated here.
->
-> **Push over SSH, never HTTPS.** Verify `git remote get-url --push origin` starts with `git@`
-> before pushing; if it starts with `https://`, fix it first — never push over HTTPS.
 
 ## How we work
 - Solo maintainer, AI-paired, vibe-coded. Four phases: **A** audit with `file:line` evidence
@@ -44,7 +36,7 @@ facts are the thing that drifts.
   delete existing features, do not switch stacks, do not add dependencies, do not pad the
   code with defensive `try/catch` or optional chaining around things that cannot fail.
 
-## Critical rules
+## Hard rules
 
 ### The three patch layers
 - **`shell-version` is `["50"]` on purpose.** The extension wraps methods on the FDO
@@ -282,14 +274,13 @@ facts are the thing that drifts.
 - Live logs: `journalctl --user -b | grep -i notification-grouper`
 
 ## Recording conventions
-- Behaviour changes land in `CHANGELOG.md` as `D-###` entries. Ids are monotonic and
-  **never reused**, so a gap in the numbering means an entry was deleted — `check:log` treats
-  it as a failure rather than a cleanup.
-- `kind` ∈ `fix` | `perf` | `taste` | `guard` | `revert` | `chore`, cut by **who may demand a
-  revert**: dropping it makes a bug → `fix`; dropping it only re-introduces measurable
-  degradation → `perf`; dropping it only annoys me → `taste`. A change that is both splits
-  into two entries. A withdrawal is recorded too — a log without reverts reads like a victory
-  list. Cleanup owed nothing either way is `chore`.
+
+Common CHANGELOG rules: `STANDARD.md` §3.
+
+- Behaviour changes land in `CHANGELOG.md` as `D-###` entries; `check:log` treats a gap in the
+  numbering as a failure rather than a cleanup.
+- A change that is two things splits into two entries; a withdrawal is recorded too — a log
+  without reverts reads like a victory list.
 - **A `revert` must name the `D-###` it overturns.** Partial overturns count: the settings
   surface reopens what D-001/D-002 closed, so it cites them instead of pretending it is new
   work. A change that silently undoes an earlier decision is the failure mode this whole file
@@ -299,24 +290,16 @@ facts are the thing that drifts.
 - Known-but-not-fixed issues do **not** go in `CHANGELOG.md` — they have no commit, because
   nothing was touched. They live in README § What it does not do and § Known limitations, and
   in `MAINTENANCE.md § Known but not fixed`.
-- `Symptom` names the mechanism, never the session: no desktop app names, no notification
-  bodies, no private toolchain paths (same rule as fixture provenance above).
+- No desktop app names, no notification bodies, no private toolchain paths (same rule as fixture
+  provenance above).
 - Run `npm run check:log` before committing docs. It fails on any commit inside the declared
   coverage window that touched a watched code path without being cited by an entry. Deliberate
   scope-outs belong outside the window, never inside an ad-hoc skip list.
 
 ## Listed on the GitHub profile
 
-This repo is listed on the owner's profile front page (`SHADE-glitch/SHADE-glitch`). That page lives
-in a **separate repository and never updates itself** — when a fact it states about this repo
-changes, update the profile README in the same round. The profile's own `AGENTS.md` is the
-authoritative rulebook; its guard `scripts/check-profile.mjs` must keep passing.
+See `STANDARD.md` §8 for the shared profile-listing triggers. This repo's own additions:
 
-- **Rename / transfer / delete** — the profile link dies; fix the row.
 - **Purpose drift / origin** — the profile's one-line description and its "original extension"
   wording must still be true.
-- **LICENSE change** — the profile's license badge must equal this repo's `LICENSE`.
 - **GNOME target change** — the `GNOME Shell` badge must equal `metadata.json`'s `shell-version`.
-- **Freeze / archive / upstream-frozen** — say so on the profile; never leave a stale "maintained".
-- **Public ↔ private** — a repo that goes private must be **delisted** (only the two whitelisted
-  private apps may stay, and they are not this one).
