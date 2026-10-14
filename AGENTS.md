@@ -4,15 +4,15 @@ Guidance for agents working inside `notification-grouper@local` — an original
 GNOME Shell 50 extension by SHADE-glitch, with no upstream project to attribute,
 published under GPL-2.0-or-later.
 
-This file is the **rulebook**. Verifiable facts, native line anchors and procedures live in
-[`MAINTENANCE.md`](MAINTENANCE.md); per-phase evidence lives in `docs/reports/`, which is
-gitignored and must never be pushed. Do not copy MAINTENANCE's tables in here — duplicated
-facts are the thing that drifts.
-
 > **Dimension.** A — open source (strict), per `CONVENTIONS.md` §0; the shared rules live once in
 > `~/.agents/standards/STANDARD.md` (§1 root files, §2 process drafts, §3 CHANGELOG entries,
 > §4 runtime ignore list, §6 remotes/pushing, §8 profile listing) and the dimension-A detail in
 > `~/.agents/standards/dimensions/a.md`. Neither is restated here.
+
+This file is the **rulebook**. Verifiable facts, native line anchors and procedures live in
+[`MAINTENANCE.md`](MAINTENANCE.md); per-phase evidence lives in `docs/reports/`, which is
+gitignored and must never be pushed. Do not copy MAINTENANCE's tables in here — duplicated
+facts are the thing that drifts.
 
 ## How we work
 - Solo maintainer, AI-paired, vibe-coded. Four phases: **A** audit with `file:line` evidence
