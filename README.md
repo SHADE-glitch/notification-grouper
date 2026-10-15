@@ -9,6 +9,14 @@ application into a single stack, instead of one stack header per process.
 ![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 [![Repository](https://img.shields.io/badge/repository-GitHub-black?logo=github)](https://github.com/SHADE-glitch/notification-grouper)
 
+**What it is** — A GNOME Shell extension that folds notifications from the same sending application into a single stack.
+
+**What it solves** — It stops a wall of identically titled one-card stack headers from command-line and dev tools that get a fresh pid on every send.
+
+**How to run** — Clone into `~/.local/share/gnome-shell/extensions/notification-grouper@local`, run `gnome-extensions enable notification-grouper@local`, then log out and back in.
+
+**Where to look** — See [AGENTS.md](AGENTS.md) and [MAINTENANCE.md](MAINTENANCE.md).
+
 GNOME 50. Works out of the box — the defaults are the whole point, so you never have
 to configure anything. Four plain switches exist for when you do want to change
 behaviour; there is no rules file and no config format to learn.

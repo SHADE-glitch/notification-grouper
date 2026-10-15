@@ -8,6 +8,14 @@
 ![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 [![Repository](https://img.shields.io/badge/repository-GitHub-black?logo=github)](https://github.com/SHADE-glitch/notification-grouper)
 
+**是什么** — 把同一个发送应用的通知折叠进单个堆叠源的 GNOME Shell 扩展。
+
+**解决什么** — 让每次发送都拿到新 pid 的命令行/开发工具不再堆出一整墙标题相同、每栈只有一张卡的栈头。
+
+**怎么跑** — 克隆到 `~/.local/share/gnome-shell/extensions/notification-grouper@local`，运行 `gnome-extensions enable notification-grouper@local`，再注销重登。
+
+**去哪看** — 见 [AGENTS.md](AGENTS.md) 与 [MAINTENANCE.md](MAINTENANCE.md)。
+
 GNOME 50。开箱即用——默认值就是全部设计意图，你不必配置任何东西。真想改行为时有四个
 白话开关；没有规则文件，也没有需要学习的配置格式。
 
