@@ -6,8 +6,13 @@ published under GPL-2.0-or-later.
 
 > **Dimension.** A — open source (strict), per `CONVENTIONS.md` §0; the shared rules live once in
 > `~/.agents/standards/STANDARD.md` (§1 root files, §2 process drafts, §3 CHANGELOG entries,
-> §4 runtime ignore list, §6 remotes/pushing, §8 profile listing) and the dimension-A detail in
-> `~/.agents/standards/dimensions/a.md`. Neither is restated here.
+> §4 runtime ignore list, §5 conflict rule, §6 remotes/pushing, §8 profile listing) and the
+> dimension-A detail in `~/.agents/standards/dimensions/a.md`. Neither is restated here.
+>
+> **Read these before the first edit** (bare `@` imports — CodeBuddy expands them; opencode reads
+> the same two from `opencode.json`):
+> @~/.agents/standards/STANDARD.md
+> @~/.agents/standards/dimensions/a.md
 
 This file is the **rulebook**. Verifiable facts, native line anchors and procedures live in
 [`MAINTENANCE.md`](MAINTENANCE.md); per-phase evidence lives in `docs/reports/`, which is
