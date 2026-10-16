@@ -523,3 +523,19 @@ Cost     The pre-existing red in `npm test` is outside this change's scope: the 
          round), not because of anything translated here. Left untouched — fixing it means editing
          those docs or loosening the guard, neither of which belongs in a language-conformance change.
 Commit   79ab8a4
+
+### D-024 · 2026-10-16 · fix · v9
+Symptom  The public records named the author's real toolchain. `AGENTS.md`'s pointer note and the
+         D-022 entry named the two agent harnesses and their repo-root config file, so the repository
+         guard "records carry no real application name" (`tests/repo.test.mjs`) went red — a public
+         record that names a desktop application names the author's toolchain. The red was a
+         regression from the standard-delivery round (D-022).
+Change   Reworded `AGENTS.md`'s pointer note and the D-022 entry to drop the product names while
+         keeping the meaning: the agent harness expands the imports at session start, and the
+         repo-root delivery config names the same two files. The two bare `@` import lines are
+         unchanged, and the delivery config file at the repo root is untouched — only the `.md`
+         records stopped naming it. No guard, test or fact changed.
+Evidence 2026-10-16: `npm test` 13/13 green — the guard's sweep now finds no application name in
+         any record file. `npm run check:log` PASS.
+Cost     None — wording only; no fact, import or file changed.
+Commit   a3b8216
