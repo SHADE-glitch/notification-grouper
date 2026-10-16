@@ -484,3 +484,15 @@ Evidence L0: `git ls-files docs` now prints `docs/README.md`; `node tests/repo.t
 Cost     One tracked file, link-free and section-free so the doc gates stay silent; `docs/reports/`
          stays untracked as the guard requires
 Commit   a8fa855
+
+### D-022 · 2026-10-16 · chore · v9
+Symptom  The pointer in AGENTS.md is followed only by an agent that chooses to; nothing made the
+         standard reach the context, and the section list had drifted — §5 (the conflict rule) was
+         missing.
+Change   End the pointer block with two bare `@` imports (`@~/.agents/standards/STANDARD.md`,
+         `@~/.agents/standards/dimensions/a.md`) and add `opencode.json` naming the same two files in
+         its `instructions` array; add `§5 conflict rule`.
+Evidence 2026-10-16: CodeBuddy CLI with every tool disabled printed the tokens the imports carried;
+         opencode `run` printed the token its `instructions` named, with no tool call.
+Cost     Both hooks name `~/.agents`, absent in another clone, so they are skipped there.
+Commit   4ec8b68
