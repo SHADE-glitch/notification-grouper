@@ -496,3 +496,29 @@ Evidence 2026-10-16: CodeBuddy CLI with every tool disabled printed the tokens t
          opencode `run` printed the token its `instructions` named, with no tool call.
 Cost     Both hooks name `~/.agents`, absent in another clone, so they are skipped there.
 Commit   4ec8b68
+
+### D-023 · 2026-10-16 · chore · v9
+Symptom  The dimension-A language policy requires code, comments and runtime log/CLI strings to be
+         English, but several shipped files, harness scripts, fixtures and one test helper still
+         carried Chinese comments and Chinese log/CLI text, so the repository did not conform.
+Change   Translated them to English in place, touching comments and log/CLI strings only — no logic,
+         identifier or functional-value change. Covered `extension.js`, `groupEngine.js`, `prefs.js`,
+         `uiWorkarounds.js`, `metadata.json` (the `_note` field), `schemas/*.gschema.xml`,
+         `scripts/bench.mjs`, `tests/{smoke,headless-verify,headless-ui-guard,provoke-settings}.sh`,
+         `tests/test-groupEngine.mjs`, `tests/check-prefs-props.js` and both fixtures'
+         `_provenance`/`_scrub`. The translated log strings keep their structure and placeholders. The
+         code-defined literals are left exactly as-is (the status-code alternation and the quoted
+         captured title in `tests/repo.test.mjs`, and the language switchers in the README pair); the
+         schema change is comment-only and leaves `schemas/gschemas.compiled` byte-identical (checked
+         with `glib-compile-schemas`).
+Evidence L0: `npm test` — the engine suite passes; the repository guards' single failure is the
+         pre-existing "records carry no real application name" assertion, identical before and after
+         this change. `npm run check:log` PASS. `bash ~/.agents/audit-layout.sh` still reports this
+         repository as compliant. Re-scanning the touched files for CJK leaves only the exempt literals.
+         `node --check` on every shipped JS file, `bash -n` on every harness and a JSON parse of both
+         fixtures all pass.
+Cost     The pre-existing red in `npm test` is outside this change's scope: the app-name guard fails
+         because `AGENTS.md` and `CHANGELOG.md` name two agent tools (added by the standard-delivery
+         round), not because of anything translated here. Left untouched — fixing it means editing
+         those docs or loosening the guard, neither of which belongs in a language-conformance change.
+Commit   79ab8a4
