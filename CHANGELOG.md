@@ -490,10 +490,11 @@ Symptom  The pointer in AGENTS.md is followed only by an agent that chooses to; 
          standard reach the context, and the section list had drifted — §5 (the conflict rule) was
          missing.
 Change   End the pointer block with two bare `@` imports (`@~/.agents/standards/STANDARD.md`,
-         `@~/.agents/standards/dimensions/a.md`) and add `opencode.json` naming the same two files in
-         its `instructions` array; add `§5 conflict rule`.
-Evidence 2026-10-16: CodeBuddy CLI with every tool disabled printed the tokens the imports carried;
-         opencode `run` printed the token its `instructions` named, with no tool call.
+         `@~/.agents/standards/dimensions/a.md`) and add the repo-root delivery config naming the
+         same two files in its `instructions` array; add `§5 conflict rule`.
+Evidence 2026-10-16: the first agent CLI with every tool disabled printed the tokens the imports
+         carried; the second agent tool's `run` printed the token its `instructions` named, with no
+         tool call.
 Cost     Both hooks name `~/.agents`, absent in another clone, so they are skipped there.
 Commit   4ec8b68
 
