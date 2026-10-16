@@ -1,19 +1,23 @@
-// prefs.js — 设置页。跑在独立的 GTK4/Adw 进程里（prefs 宿主 =
-// /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Extensions，D-Bus 激活），
-// 所以这里可以 import Adw/Gtk；extension.js 在 shell 进程里，绝对不行。
+// prefs.js — the preferences page. It runs in a separate GTK4/Adw process (the prefs host is
+// /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Extensions, D-Bus activated), so Adw/Gtk
+// may be imported here; extension.js runs in the shell process and absolutely may not.
 //
-// 控件与属性名全部在本机 libadwaita 1.9.1 上内省实测过，不是凭记忆写的：
-//   有 subtitle —— ActionRow / SwitchRow / SpinRow / ExpanderRow
-//   没 subtitle —— **EntryRow**（当年整套 prefs 被删就是给它设了 subtitle，见 CHANGELOG D-001）
-//   Adw.SpinRow 没有 value-changed 信号，只有属性；所以数值用 settings.bind() 走
-//   'value'（同仓 macos-dock 的既有做法，本机每天在用）
-//   Adw.EntryRow 没有 placeholder-text；提示文字用它的 title
-//   Adw.EntryRow 的回车信号名是 entry-activated（实测 signal_lookup 命中）
-// prefs 对象随对话框一起构造与销毁，这里的 changed:: 不需要跨会话清理义务；
-// **shell 进程里**的 changed:: 才必须可 disconnect（见 extension.js 的 _settingsHids）。
+// Every widget and property name below was introspected on this machine's libadwaita 1.9.1, not
+// written from memory:
+//   has subtitle — ActionRow / SwitchRow / SpinRow / ExpanderRow
+//   no subtitle — **EntryRow** (the whole prefs surface was once deleted because it set a subtitle
+//   on it, see CHANGELOG D-001)
+//   Adw.SpinRow has no value-changed signal, only properties; so the number goes through
+//   settings.bind() on 'value' (the existing approach in this workspace's macos-dock, in daily use here)
+//   Adw.EntryRow has no placeholder-text; use its title for the hint text
+//   Adw.EntryRow's activate signal is named entry-activated (signal_lookup hits it, measured)
+// The prefs object is built and destroyed with the dialog, so the changed:: handlers here carry no
+// cross-session cleanup obligation; only a changed:: handler **in the shell process** must be
+// disconnectable (see _settingsHids in extension.js).
 //
-// 四个键的默认值就等于本扩展的零配置行为，所以从不打开这页的人，看到的行为与装上前一致。
-// 界面文案用英文（与 metadata description、README 英文主文档一致）。
+// The four keys' defaults equal this extension's zero-config behaviour, so someone who never opens
+// this page sees the same behaviour as before it was installed.
+// UI text is English (consistent with the metadata description and the English README).
 
 import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
@@ -22,7 +26,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import { ExtensionPreferences } from
     'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-const NATIVE_MAX = 10;      // 原生 messageTray.js:25 的 MAX_NOTIFICATIONS_PER_SOURCE
+const NATIVE_MAX = 10;      // MAX_NOTIFICATIONS_PER_SOURCE in native messageTray.js:25
 const ALL_KEYS = ['grouping-enabled', 'ui-guards', 'max-per-source', 'isolate-apps'];
 const BIND = Gio.SettingsBindFlags.DEFAULT |
     Gio.SettingsBindFlags.GET |
@@ -83,10 +87,11 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
                 value: settings.get_int('max-per-source'),
             }),
         });
-        // 不 bind：键是 int、SpinRow.value 是 double。这是实测出来的——用 bind 时
-        // GJS 在 50.1 上直接报 "GSettings key type does not match property type"
-        // （overrides/Gio.js:398），绑定不生效却不让对话框失败，正是最难发现的那类错误。
-        // 双向都显式接：写回设置，且设置变化（含 Reset 按钮）要回到界面上。
+        // No bind: the key is an int and SpinRow.value is a double. This was measured — with bind,
+        // GJS on 50.1 reports "GSettings key type does not match property type" (overrides/Gio.js:398)
+        // and the binding silently does nothing without failing the dialog, which is the hardest kind
+        // of error to find. Both directions are wired explicitly: writes go back to the setting, and
+        // setting changes (including the Reset button) come back to the UI.
         let ignoreNotify = false;
         cap.connect('notify::value', () => {
             if (ignoreNotify)

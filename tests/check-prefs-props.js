@@ -1,31 +1,33 @@
-// tests/check-prefs-props.js — prefs.js 用到的控件属性/信号，逐个对着
-// 本机 libadwaita 内省校验。不需要显示器：只查类，不实例化控件。
+// tests/check-prefs-props.js — every widget property/signal prefs.js uses, introspected one by one
+// against this machine's libadwaita. No display needed: it only inspects classes, never instantiates
+// a widget.
 //
-// 为什么存在：当年整套 prefs 被删掉，是因为给 Adw.EntryRow 设了 subtitle，而 1.9.1 的
-// EntryRow 没有这个属性（见 CHANGELOG D-001）。那种错误不该再靠"打开设置页才发现"。
+// Why it exists: the whole prefs surface was once deleted because it set a subtitle on Adw.EntryRow,
+// and 1.9.1's EntryRow has no such property (see CHANGELOG D-001). That kind of error should not have
+// to wait for "someone opens the prefs page".
 //
-// 两侧都查，所以这张清单不能悄悄烂掉：
-//   (a) 清单里的每个 (类, 成员) 必须真的存在于本机 Adw/Gtk —— 否则 prefs.js 会在
-//       用户点开设置时才炸；
-//   (b) 清单里的每个成员名必须仍出现在 prefs.js 源码里 —— 否则清单只是化石，
-//       检查通过却什么也不保证。
-// 用法：gjs tests/check-prefs-props.js      退出码 0 = 全通过
+// Both sides are checked, so this list cannot rot quietly:
+//   (a) every (class, member) in the list must really exist on this machine's Adw/Gtk — otherwise
+//       prefs.js blows up only when the user opens the settings;
+//   (b) every member name in the list must still appear in the prefs.js source — otherwise the list is
+//       just a fossil and the check passes while guaranteeing nothing.
+// Usage: gjs tests/check-prefs-props.js      exit code 0 = all pass
 const Adw = imports.gi.Adw;
 const Gtk = imports.gi.Gtk;
 const GObject = imports.gi.GObject;
 
-// kind: 'prop' 属性，'signal' 信号。name 是源码里出现的字面名。
+// kind: 'prop' for a property, 'signal' for a signal. name is the literal name as it appears in the source.
 const USED = [
-    // 页面骨架
+    // Page skeleton
     { cls: 'Adw.PreferencesPage', kind: 'prop', name: 'title' },
     { cls: 'Adw.PreferencesPage', kind: 'prop', name: 'icon_name' },
     { cls: 'Adw.PreferencesGroup', kind: 'prop', name: 'title' },
     { cls: 'Adw.PreferencesGroup', kind: 'prop', name: 'description' },
-    // 开关
+    // Switches
     { cls: 'Adw.SwitchRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.SwitchRow', kind: 'prop', name: 'subtitle' },
     { cls: 'Adw.SwitchRow', kind: 'prop', name: 'active' },
-    // 数值：SpinRow 只有属性没有 value-changed 信号，所以走 settings.bind('value')
+    // Number: SpinRow has only properties and no value-changed signal, so it goes through settings.bind('value')
     { cls: 'Adw.SpinRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.SpinRow', kind: 'prop', name: 'subtitle' },
     { cls: 'Adw.SpinRow', kind: 'prop', name: 'adjustment' },
@@ -35,15 +37,15 @@ const USED = [
     { cls: 'Gtk.Adjustment', kind: 'prop', name: 'step_increment' },
     { cls: 'Gtk.Adjustment', kind: 'prop', name: 'page_increment' },
     { cls: 'Gtk.Adjustment', kind: 'prop', name: 'value' },
-    // 例外表
+    // Exception list
     { cls: 'Adw.ExpanderRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.ExpanderRow', kind: 'prop', name: 'subtitle' },
     { cls: 'Adw.ExpanderRow', kind: 'prop', name: 'enable_expansion' },
-    // EntryRow：有 title/text，**没有 subtitle**（D-001 的坑）、没有 placeholder-text
+    // EntryRow: has title/text, **no subtitle** (the D-001 trap) and no placeholder-text
     { cls: 'Adw.EntryRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.EntryRow', kind: 'prop', name: 'text' },
     { cls: 'Adw.EntryRow', kind: 'signal', name: 'entry-activated' },
-    // 动作行与按钮
+    // Action rows and buttons
     { cls: 'Adw.ActionRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.ActionRow', kind: 'prop', name: 'subtitle' },
     { cls: 'Adw.ActionRow', kind: 'prop', name: 'activatable_widget' },
@@ -54,7 +56,7 @@ const USED = [
     { cls: 'Gtk.Button', kind: 'signal', name: 'clicked' },
 ];
 
-// 反向钉住历史缺陷：这两条若哪天变成"存在"，说明 Adw 改了语义，清单要重读。
+// Pin the historical defect in reverse: if either of these ever becomes "present", Adw changed its semantics and the list must be re-read.
 const MUST_NOT_EXIST = [
     { cls: 'Adw.EntryRow', kind: 'prop', name: 'subtitle' },
     { cls: 'Adw.EntryRow', kind: 'prop', name: 'placeholder-text' },
@@ -68,9 +70,11 @@ function resolve(fqn) {
 }
 
 function hasProp(cls, name) {
-    // GObject 属性名是带连字符的规范名（enable-expansion），而 GJS 的构造参数允许
-    // 下划线别名（enable_expansion），同仓 macos-dock/prefs.js 就是这么写的。
-    // 清单按规范名查，源码按别名出现——两边都认，才不会把"命名风格"误报成"属性不存在"。
+    // GObject property names are the canonical hyphenated form (enable-expansion), while GJS
+    // construction arguments accept an underscore alias (enable_expansion), which is how this
+    // workspace's macos-dock/prefs.js writes them. The list looks up the canonical name and the source
+    // uses the alias — accepting both is what stops a "naming style" difference being misreported as
+    // "the property does not exist".
     const dashed = name.replace(/_/g, '-');
     return cls.list_properties().some(p => p.name === name || p.name === dashed);
 }
@@ -97,7 +101,7 @@ function check(list, expect) {
 }
 
 const GLib = imports.gi.GLib;
-// 相对脚本自身定位，不依赖调用者的 cwd
+// Located relative to the script itself, not depending on the caller's cwd
 const ROOT = GLib.path_get_dirname(GLib.path_get_dirname(
     imports.system.programInvocationName));
 const src = new TextDecoder().decode(
@@ -105,8 +109,8 @@ const src = new TextDecoder().decode(
 
 const bad = check(USED, true).concat(check(MUST_NOT_EXIST, false));
 
-// (b) 清单必须仍然描述真实代码：每个成员名都得在 prefs.js 里出现
-// （规范名或 GJS 的下划线别名，两种写法都算数）
+// (b) the list must still describe the real code: every member name must appear in prefs.js
+// (either the canonical name or GJS's underscore alias counts)
 for (const u of USED) {
     const dashed = u.name.replace(/_/g, '-');
     const under = u.name.replace(/-/g, '_');

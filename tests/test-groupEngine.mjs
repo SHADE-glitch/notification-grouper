@@ -1,5 +1,6 @@
-// groupEngine 单测（node --test）。fixtures 来自真实抓包。
-// 引擎已瘦身为"零配置只按应用分"：只覆盖 identity 链 + 通用名/空名策略 + 挂接点自检。
+// groupEngine unit tests (node --test). The fixtures come from real captures.
+// The engine has been slimmed to "zero-config, group by app only": this covers the identity chain +
+// the generic/empty-name policy + the attach-point self-checks.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,46 +12,46 @@ import {
 const load = (n) =>
     JSON.parse(readFileSync(new URL(`./fixtures/${n}`, import.meta.url)));
 
-// 真实 fixture 1：hook 脚本的裸 notify-send 调用（app_name=notify-send）
-// -> 通用名照样作为分组键，跨 pid 合并到一个共享源
-test('hook 走裸 notify-send -> app:notify-send，可合并', () => {
+// Real fixture 1: a hook script's bare notify-send call (app_name=notify-send)
+// -> a generic name still serves as the grouping key and merges across pids into one shared source
+test('hook via bare notify-send -> app:notify-send, mergeable', () => {
     const fx = load('notify-send-hook.json');
     const r = computeGroup(fx._engine_input);
     assert.equal(r.groupKey, 'app:notify-send');
     assert.equal(r.mergeable, true);
 });
 
-// 真实 fixture 2：显式 --app-name 发送、无 desktop-entry 的具名 CLI -> 稳定分组，零配置
-test('具名 CLI（无 desktop-entry）-> app:example-notifier，可合并（新应用零配置即分组）', () => {
+// Real fixture 2: a named CLI sending with an explicit --app-name and no desktop-entry -> stable grouping, zero-config
+test('named CLI (no desktop-entry) -> app:example-notifier, mergeable (a new app groups with zero config)', () => {
     const fx = load('named-cli.json');
     const r = computeGroup(fx._engine_input);
     assert.equal(r.groupKey, 'app:example-notifier');
     assert.equal(r.mergeable, true);
 });
 
-// identity 链优先级：desktop-entry > appId > app_name
-test('desktop-entry 优先于 app_name', () => {
+// Identity chain priority: desktop-entry > appId > app_name
+test('desktop-entry takes priority over app_name', () => {
     const r = computeGroup({ appName: 'electron-app', desktopEntry: 'Example IDE CN' });
     assert.equal(r.groupKey, 'app:example ide cn');
     assert.equal(r.mergeable, true);
 });
 
-test('无 desktop-entry 时用 appId', () => {
+test('falls back to appId when there is no desktop-entry', () => {
     const r = computeGroup({ appName: 'electron', appId: 'org.example.App' });
     assert.equal(r.groupKey, 'app:org.example.app');
     assert.equal(r.mergeable, true);
 });
 
-// 归一化：大小写 / 首尾空白 / .desktop 后缀都不影响分组键
-test('归一化：大小写与 .desktop 后缀不改变分组键', () => {
+// Normalisation: case / surrounding spaces / the .desktop suffix do not affect the grouping key
+test('normalisation: case and the .desktop suffix do not change the grouping key', () => {
     assert.equal(computeGroup({ appName: 'SuperNewApp-XYZ' }).groupKey, 'app:supernewapp-xyz');
     assert.equal(computeGroup({ appName: 'supernewapp-xyz.desktop' }).groupKey, 'app:supernewapp-xyz');
     assert.equal(normalizeName('  Foo.Desktop  '), 'foo');
     assert.equal(normalizeName(undefined), '');
 });
 
-// 通用名（发送方声明的身份）照样分组；只有真正空 app_name 才隔离
-test('通用名照样分组，空 app_name 才隔离', () => {
+// A generic name (the identity the sender declares) still groups; only a truly empty app_name is isolated
+test('a generic name still groups; only an empty app_name is isolated', () => {
     for (const appName of ['notify-send', 'node-notifier']) {
         const r = computeGroup({ appName });
         assert.equal(r.mergeable, true, `appName=${JSON.stringify(appName)}`);
@@ -63,8 +64,8 @@ test('通用名照样分组，空 app_name 才隔离', () => {
     }
 });
 
-// 误合并防护：两个不同的通用名 -> 各自成栈，不互相合并
-test('两个不同通用名 -> 各自成栈', () => {
+// Mis-merge protection: two different generic names -> each gets its own stack, no merging between them
+test('two different generic names -> separate stacks', () => {
     const a = computeGroup({ appName: 'notify-send' });
     const b = computeGroup({ appName: 'node-notifier' });
     assert.equal(a.groupKey, 'app:notify-send');
@@ -73,13 +74,13 @@ test('两个不同通用名 -> 各自成栈', () => {
     assert.equal(computeGroup({ appName: '' }).mergeable, false);
 });
 
-test('空输入 -> 不可合并', () => {
+test('empty input -> not mergeable', () => {
     assert.deepEqual(computeGroup(), { groupKey: null, mergeable: false });
     assert.deepEqual(computeGroup({}), { groupKey: null, mergeable: false });
 });
 
-// 自降级决策：两挂接点齐全 -> 挂 2 处补丁；任一缺失 -> 不挂、只警告
-test('checkAttachPoints：2 补丁齐全则 attach，缺失则 inert', () => {
+// Self-degradation decision: both attach points present -> mount 2 patches; either missing -> mount nothing, warn only
+test('checkAttachPoints: attaches with both patches present, inert when one is missing', () => {
     const full = {
         hasFdo: true, fdoKeys: '_fdoNotificationDaemon',
         hasNotifyAsync: true, hasGetSource: true,
@@ -103,8 +104,8 @@ test('checkAttachPoints：2 补丁齐全则 attach，缺失则 inert', () => {
     assert.match(noGet.warnings.join(';'), /_getSourceForPidAndName missing/);
 });
 
-// UI 兜底点自检：与分组补丁相互独立，且默认 fail-safe（信息不全就不挂）
-test('checkUiGuardPoints：6 项齐全才 apply', () => {
+// UI workaround-point self-check: independent of the grouping patches, and fail-safe by default (mount nothing when the info is incomplete)
+test('checkUiGuardPoints: applies only when all 6 are present', () => {
     const full = {
         moduleLoaded: true, hasMessage: true, hasGroup: true,
         hasNotifMessage: true, hasUnexpand: true, hasCollapse: true,
@@ -116,11 +117,11 @@ test('checkUiGuardPoints：6 项齐全才 apply', () => {
     assert.deepEqual(REQUIRED_UI_GUARDS,
         ['Message.unexpand', 'NotificationMessageGroup.collapse',
             'NotificationMessage.close']);
-    // 独立性：兜底点绝不能和分组补丁点混为一谈
+    // Independence: workaround points must never be conflated with grouping patch points
     assert.deepEqual(REQUIRED_UI_GUARDS.filter(g => REQUIRED_PATCHES.includes(g)), []);
 });
 
-test('checkUiGuardPoints：任一项缺失 -> 不挂、只警告', () => {
+test('checkUiGuardPoints: any one missing -> mount nothing, warn only', () => {
     const full = {
         moduleLoaded: true, hasMessage: true, hasGroup: true,
         hasNotifMessage: true, hasUnexpand: true, hasCollapse: true,
@@ -141,33 +142,33 @@ test('checkUiGuardPoints：任一项缺失 -> 不挂、只警告', () => {
         assert.equal(r.guards.length, 0, `${key}=false must install nothing`);
         assert.match(r.warnings.join(';'), re, `${key}=false warning text`);
     }
-    // 空输入必须走惰性分支，绝不能默认挂载
+    // Empty input must take the inert branch and never mount by default
     assert.deepEqual(checkUiGuardPoints(), { apply: false, guards: [], warnings: checkUiGuardPoints().warnings });
     assert.equal(checkUiGuardPoints({}).apply, false);
 });
 
-// ---- 设置面：分组开关与例外表都是引擎的纯输入，热路径不读设置 ----
+// ---- Settings surface: the grouping toggle and the exception list are pure inputs to the engine; the hot path does not read settings ----
 
-test('grouping-enabled=false -> 一律不合并（键仍算得出，交回原生 per-pid）', () => {
+test('grouping-enabled=false -> never merge (the key is still computed, but native per-pid is handed back)', () => {
     const off = computeGroup({ appName: 'Any', enabled: false });
     assert.deepEqual(off, { groupKey: null, mergeable: false });
-    // 默认值必须是"合并"，否则零配置默认被这次改动悄悄推翻
+    // The default must be "merge", or this change silently overturns the zero-config default
     assert.equal(computeGroup({ appName: 'Any' }).mergeable, true);
     assert.equal(computeGroup({ appName: 'Any', enabled: true }).mergeable, true);
 });
 
-test('isolate-apps 命中 -> 该应用不合并；未命中照常合并', () => {
+test('isolate-apps hit -> that app is not merged; a miss merges as usual', () => {
     const iso = new Set(['foo']);
     assert.deepEqual(computeGroup({ appName: 'Foo', isolated: iso }),
         { groupKey: null, mergeable: false });
     assert.equal(computeGroup({ appName: 'Bar', isolated: iso }).mergeable, true);
-    // 空集合与不传等价
+    // An empty set is equivalent to passing nothing
     assert.equal(computeGroup({ appName: 'Foo', isolated: new Set() }).mergeable, true);
     assert.equal(computeGroup({ appName: 'Foo', isolated: null }).mergeable, true);
 });
 
-test('例外表比对的是"算出来的那个身份"，不是原始 app_name', () => {
-    // desktop-entry 优先于 app_name：例外表要写 foo（解析后的身份），写 x 不生效
+test('the exception list compares against the computed identity, not the raw app_name', () => {
+    // desktop-entry takes priority over app_name: the exception list must name foo (the resolved identity); naming x has no effect
     const byEntry = computeGroup({ appName: 'x', desktopEntry: 'foo.desktop' });
     assert.equal(byEntry.groupKey, 'app:foo');
     assert.equal(computeGroup({ appName: 'x', desktopEntry: 'foo.desktop',
@@ -176,7 +177,7 @@ test('例外表比对的是"算出来的那个身份"，不是原始 app_name', 
         isolated: new Set(['x']) }).mergeable, true);
 });
 
-test('normalizeIsolate：去空白、转小写、去 .desktop、丢空项、去重', () => {
+test('normalizeIsolate: trims, lower-cases, strips .desktop, drops empty entries, de-duplicates', () => {
     const s = normalizeIsolate(['  Foo Bar  ', 'BAZ.desktop', '', '   ', 'foo bar', 'qux.desktop']);
     assert.deepEqual([...s].sort(), ['baz', 'foo bar', 'qux']);
     assert.deepEqual([...normalizeIsolate([])], []);

@@ -1,38 +1,43 @@
 #!/bin/bash
-# tests/provoke-settings.sh — 证明"用户可见行为"的门禁断言真的接着行为，而不是恒绿。
-# 覆盖设置面四个键，也覆盖削位时机与发给发送方的 reason：凡是"实现空转也照样绿"
-# 的那类断言，都该在这里有一条对应的变异。
+# tests/provoke-settings.sh — proves that the gates on "user-visible behaviour" really hang off
+# behaviour rather than being permanently green. It covers the four settings-surface keys, the trim
+# timing, and the reason handed to the sender: any assertion of the "the implementation idles and it
+# still reads green" kind should have a matching mutation here.
 #
-# 做法：把整棵树复制到 /tmp，在副本里把某个设置的读取点**改成常量**（即"设置被
-# 忽略"），跑同一个 tests/headless-verify.sh，要求**对应那条断言变红**。判定只看
-# 那一条，其它断言不参与。一条断言若无论实现有没有生效都读作 PASS，它就没有存在
-# 价值——这个脚本专门用来暴露那种情况。绝不改动工作树。
+# Method: copy the whole tree to /tmp, change one settings read point **into a constant** in the copy
+# (i.e. "the setting is ignored"), run the same tests/headless-verify.sh, and require the **matching
+# assertion to go red**. Only that one assertion is judged; the others do not take part. An assertion
+# that reads PASS whether or not the implementation took effect has no reason to exist — this script
+# exists to expose exactly that. It never touches the working tree.
 #
-#   usage: tests/provoke-settings.sh          （5 轮 headless，约 4 分钟）
-#   exit:  0 每个变异都打出了预期的红；1 有变异没被打红，或字面串已过时
+#   usage: tests/provoke-settings.sh          (5 headless rounds, about 4 minutes)
+#   exit:  0 every mutation produced the expected red; 1 a mutation did not go red, or a literal is stale
 #
-# 字段分隔用 TAB，不用竖线：断言名和替换串里都可能出现竖线。
+# Fields are separated by TAB, not a pipe: both assertion names and replacement strings may contain a pipe.
 #
-# 已踩过的坑：
-#   - 字面串必须**恰好命中一次**。`this._x = s.get_...(...)` 在 changed:: 处理器和
-#     _readSettings() 里各写了一遍，缩进不同（16 空格 vs 8 空格）；拿 8 空格版本去
-#     数会命中 2 次（它是 16 空格那行的子串），所以这里用带完整缩进的字面串。命中
-#     次数不为 1 直接报 STALE，不静默继续。
-#   - 变异必须只打"设置生效"这一条路径。把 initial read 改掉却留着 changed:: 不改
-#     也照样是绿的（harness 是 enable 之后才 set 的），所以两个 case 都改 changed::
-#     处理器那一行。
-#   - 替换后必须还是合法 JS，否则红是语法错误造成的假红（用 node --check 把关）。
-#   - 变异必须打到**真实生效的那条路径**。把 `if (!this._uiGuardsEnabled)` 改成
-#     `if (false)` 是一个**等价变异**，打不红：关开关时 `_mountUiGuards()` 走 attach 分支，
-#     而 attach() 第一句就是 detach()，兜底照样被撤——断言仍然绿是正确结果，不是假绿。
-#     所以兜底开关用两个各打一处的变异（撤兜底那一句 / 读设置那一句），而不是改外层条件。
-#   - shell 日志含二进制字节，grep 不加 -a 会只回 "binary file matches"。
+# Traps already paid for:
+#   - A literal must match **exactly once**. `this._x = s.get_...(...)` appears once in the changed::
+#     handler and once in _readSettings(), at different indentation (16 spaces vs 8); counting with the
+#     8-space version hits 2 times (it is a substring of the 16-space line), so the literal here carries
+#     the full indentation. A hit count other than 1 reports STALE instead of continuing silently.
+#   - A mutation must hit only the "the setting takes effect" path. Changing the initial read while
+#     leaving changed:: untouched still reads green (the harness sets after enable), so both cases
+#     change the changed:: handler line.
+#   - The replacement must still be valid JS, or the red is a false red caused by a syntax error
+#     (guarded with node --check).
+#   - A mutation must hit the **path that really takes effect**. Changing `if (!this._uiGuardsEnabled)`
+#     to `if (false)` is an **equivalent mutant** that does not go red: turning the switch off sends
+#     `_mountUiGuards()` down the attach branch, and attach()'s first statement is detach(), so the
+#     workarounds are removed anyway — staying green is the correct result, not a false green. So the
+#     workaround toggle uses two single-spot mutations (the line that removes the workarounds / the
+#     line that reads the setting) instead of changing the outer condition.
+#   - Shell logs contain binary bytes; grep without -a only replies "binary file matches".
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${TMPDIR:-/tmp}/ng-provoke
 PASS=0; FAILED=0
 
-# 字段：id <TAB> 字面串 <TAB> 替换成 <TAB> 期望变红的断言名
+# Fields: id <TAB> literal <TAB> replacement <TAB> assertion name expected to go red
 CASES=(
 "cap-ignored	              this._maxPerSource = s.get_int('max-per-source');	              this._maxPerSource = 10;	max-per-source=3 trims to 3"
 "grouping-ignored	              this._groupingEnabled = s.get_boolean('grouping-enabled');	              this._groupingEnabled = true;	grouping off stops merging"
@@ -56,8 +61,9 @@ for entry in "${CASES[@]}"; do
     /bin/rm -rf "$D"; mkdir -p "$D"
     tar -C "$ROOT" --exclude=.git --exclude=reports -cf - . | tar -C "$D" -xf -
 
-    # 字面替换用 python，不用 sed：串里有引号、点、括号，sed 会当元字符。
-    # 缩进属于字面串的一部分，替换串同样带缩进，所以替换后行首不塌。
+    # Literal replacement uses python, not sed: the strings contain quotes, dots and parentheses,
+    # which sed would treat as metacharacters. Indentation is part of the literal, and the replacement
+    # carries the same indentation, so the line start does not collapse after replacement.
     if ! python3 - "$D/extension.js" "$from" "$to" "$id" <<'PY'
 import sys
 p, frm, to, id_ = sys.argv[1:5]

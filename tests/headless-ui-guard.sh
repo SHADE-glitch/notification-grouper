@@ -22,7 +22,7 @@ set -u
 EXT=${1:-$(CDIR=$(cd "$(dirname "$0")/.." && pwd) && echo "$CDIR")}
 LABEL=${2:-guard}
 V=${TMPDIR:-/tmp}/ng-verify
-# metadata stub 必须带 settings-schema，否则 enable() 里的 getSettings() 抛出。
+# The metadata stub must carry settings-schema, or getSettings() inside enable() throws.
 SCHEMA=$(sed -n 's/.*"settings-schema"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$EXT/metadata.json")
 [ -n "$SCHEMA" ] || { echo "metadata.json has no settings-schema" >&2; exit 1; }
 EXPECT=${EXPECT:-guarded}
@@ -165,7 +165,7 @@ kill $SP 2>/dev/null; wait $SP 2>/dev/null; true'
 
 echo "=== [$LABEL] checks ==="
 cat "$RES" 2>/dev/null || { echo MISSING; exit 1; }
-# The two counters that used to sit here ("TypeError … 次数", "collapse@messageList 栈帧次数")
+# The two counters that used to sit here ("TypeError … count", "collapse@messageList frame count")
 # read 0 in BOTH modes: collapse() is awaited inside the probe, so the fault is caught and
 # never reaches the shell's default handler. A line that says "0" either way is not evidence,
 # so the reason is asserted from collapseRejection below instead.

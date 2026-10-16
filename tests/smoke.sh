@@ -1,12 +1,13 @@
 #!/bin/bash
-# tests/smoke.sh — L2 手验清单（真实会话，只有你能跑）。
+# tests/smoke.sh — the L2 manual checklist (a real session; only you can run it).
 #
-# 为什么需要它：L1 的两个 harness 用 notify-send 合成通知，能证明补丁挂载/还原和合并语义，
-# 但证明不了真实发送方的行为——上一轮"能分组但体验差"就是在合成通知上跑绿的。
-# 这个脚本先自动核对**机器能核对的**部分，再把只剩人手能判断的项打印出来。
+# Why it is needed: the two L1 harnesses send synthetic notifications with notify-send and can prove
+# patch mount/restore and the merge semantics, but not a real sender's behaviour — the last round's
+# "groups but the experience is poor" ran green on synthetic notifications. This script auto-checks
+# the **machine-checkable** parts first, then prints the items only a human can judge.
 #
-#   usage: tests/smoke.sh            只读；不改任何配置、不发消息、不启用/禁用扩展
-#   约定：清单不用复选框语法（本仓库入库文档一律禁 `- [ ]`，见 tests/repo.test.mjs）
+#   usage: tests/smoke.sh            read-only; changes no config, sends no message, enables/disables nothing
+#   convention: the checklist uses no checkbox syntax (committed docs here forbid `- [ ]`, see tests/repo.test.mjs)
 set -u
 UUID=notification-grouper@local
 FAIL=0
@@ -15,98 +16,99 @@ line() { printf '%s\n' "---- $*"; }
 ok()   { printf '  OK    %s\n' "$*"; }
 bad()  { printf '  CHECK %s\n' "$*"; FAIL=$((FAIL+1)); }
 
-line "环境"
+line "environment"
 GV=$(gnome-shell --version 2>/dev/null)
 case "$GV" in
   *" 50."*) ok "$GV" ;;
-  *) bad "期望 GNOME Shell 50.x，读到：${GV:-（读不到）}" ;;
+  *) bad "expected GNOME Shell 50.x, read: ${GV:-(unreadable)}" ;;
 esac
 if [ -f /usr/lib/gnome-shell/libshell-18.so ]; then
     ok "shell JS lives in libshell-18.so's gresource (re-extract per MAINTENANCE § Upgrade adaptation manual on upgrade)"
 else
-    bad "/usr/lib/gnome-shell/libshell-18.so 不存在——原生行号锚点全部需要重验"
+    bad "/usr/lib/gnome-shell/libshell-18.so is missing — every native line anchor needs re-verification"
 fi
 
-line "扩展状态"
+line "extension state"
 if command -v gnome-extensions >/dev/null 2>&1; then
     INFO=$(gnome-extensions info "$UUID" 2>/dev/null)
     if [ -z "$INFO" ]; then
-        bad "gnome-extensions 读不到 $UUID（扩展目录不对，或没装进当前会话）"
+        bad "gnome-extensions cannot read $UUID (wrong extension dir, or not installed in this session)"
     else
         echo "$INFO" | sed 's/^/        /'
-        # 本机实测：启用态打印的是 "Enabled: Yes" + "State: ACTIVE"，不是 "ENABLED"。
+        # Measured on this machine: the enabled state prints "Enabled: Yes" + "State: ACTIVE", not "ENABLED".
         case "$INFO" in
-          *"Enabled: Yes"*) ok "已启用（State 见上一行）" ;;
-          *) bad "未启用：本轮所有手工项都无法验证" ;;
+          *"Enabled: Yes"*) ok "enabled (see the State line above)" ;;
+          *) bad "not enabled: none of this round's manual items can be verified" ;;
         esac
     fi
 else
-    bad "没有 gnome-extensions 命令"
+    bad "no gnome-extensions command"
 fi
 
-line "设置面（真实 dconf，只读）"
+line "settings surface (real dconf, read-only)"
 SCHEMA=$(python3 -c "
 import json,sys
 print(json.load(open(sys.argv[1])).get('settings-schema',''))" \
     "$HOME/.local/share/gnome-shell/extensions/$UUID/metadata.json" 2>/dev/null)
 EXTDIR="$HOME/.local/share/gnome-shell/extensions/$UUID"
 if [ -z "$SCHEMA" ]; then
-    bad "metadata.json 没有 settings-schema"
+    bad "metadata.json has no settings-schema"
 elif [ ! -f "$EXTDIR/schemas/gschemas.compiled" ]; then
-    bad "$EXTDIR/schemas/gschemas.compiled 不存在——getSettings() 会抛，扩展起不来"
+    bad "$EXTDIR/schemas/gschemas.compiled is missing — getSettings() throws and the extension cannot start"
 else
-    ok "schemas/gschemas.compiled 就位（$SCHEMA）"
+    ok "schemas/gschemas.compiled is in place ($SCHEMA)"
 fi
-# 注意：gsettings CLI 看不见扩展自带的 schema，这是设计如此——扩展侧是
-# extensions/sharedInternals.js:97-105 用 new_from_directory 现造一个 source，
-# CLI 只查默认 source。所以这里读 dconf（同一个 path，CLI 可见），并且**只读不写**。
+# Note: the gsettings CLI cannot see an extension's own schema, by design — the extension side builds
+# a source on the fly with new_from_directory at extensions/sharedInternals.js:97-105, and the CLI only
+# queries the default source. So this reads dconf (the same path, visible to the CLI), and is **read-only**.
 if command -v dconf >/dev/null 2>&1; then
     DUMP=$(dconf dump /org/gnome/shell/extensions/notification-grouper/ 2>/dev/null)
     if [ -z "$DUMP" ]; then
-        ok "dconf 里该路径为空 = 四个键都是默认值（10 / 开 / 开 / 空表）"
+        ok "the path is empty in dconf = all four keys are default (10 / on / on / empty list)"
     else
         echo "$DUMP" | sed 's/^/        /'
-        bad "这些值被写进了**真实 dconf**（非默认）。若不是你自己拨的，回默认："
+        bad "these values were written into the **real dconf** (non-default). If you did not set them, reset:"
         bad "  dconf reset -f /org/gnome/shell/extensions/notification-grouper/"
     fi
 else
-    bad "没有 dconf 命令，无法核对真实设置值"
+    bad "no dconf command; cannot check the real setting values"
 fi
 
-line "日志（本轮会话）"
+line "logs (this session)"
 LOG=$(journalctl --user -b 2>/dev/null | grep -iE 'notification-grouper|messageList' || true)
-# 这两条是本轮踩过坑之后加的：
-#   - 「本轮有没有 enable 行」决定下面手工项验的是不是当前磁盘上的代码；
-#     disable/enable 不重载 ES 模块，改了 JS 却没重新登录时，扩展照样 ACTIVE。
-#   - 「already disposed」是削位时机错的特征串（max-per-source=1 曾经触发），
-#     产品路径里出现它就该当成缺陷，不是噪声。
+# These two were added after traps hit this round:
+#   - "did this session have an enable line" decides whether the manual items below verify the code
+#     currently on disk; disable/enable does not reload ES modules, so an extension whose JS was edited
+#     but not followed by a re-login still reads ACTIVE.
+#   - "already disposed" is the signature string of a wrong trim timing (max-per-source=1 once
+#     triggered it); in the product path it must be treated as a defect, not noise.
 if journalctl --user -b 2>/dev/null | grep -q 'notification-grouper] enabled, attached patches'; then
-    ok "本轮会话里扩展确实被加载过（否则下面验的还是旧代码）"
+    ok "the extension really was loaded this session (otherwise what follows verifies old code)"
 else
-    bad "本轮 journal 没有 enable 行：磁盘代码可能没被加载，需要登出再登录"
+    bad "no enable line in this boot's journal: the on-disk code may not be loaded; log out and back in"
 fi
-# 「already disposed」是 GNOME 里的**通用串**，不是我们的特征串：本 boot 实测有 5 条，
-# 全是 St.Adjustment / Gjs_ui_layout_UiActor，栈停在 GObject.js:710 ← signalTracker.js，
-# 时间就在旧 shell 退出、新 shell 起来那一秒——拿它当产品判据会诬告。
-# 我们那个缺陷的特征串是**通知源这个类**被 dispose（FdoNotificationDaemonSource），
-# 判据必须带上类名。
+# "already disposed" is a **generic string** in GNOME, not ours: this boot measured 5 of them, all
+# St.Adjustment / Gjs_ui_layout_UiActor with the stack stopping at GObject.js:710 <- signalTracker.js,
+# right at the second the old shell exits and the new one starts — using it as a product verdict would
+# be a false accusation. Our defect's signature string is a **notification source of this class** being
+# disposed (FdoNotificationDaemonSource), so the verdict must carry the class name.
 DISPOSED=$(journalctl --user -b 2>/dev/null | grep -c 'notificationDaemon_FdoNotificationDaemonSource.*already disposed')
 if [ "${DISPOSED:-0}" -eq 0 ]; then
-    ok "没有通知源被 dispose 的行（削位时机正确）"
+    ok "no line showing a notification source disposed (trim timing is correct)"
 else
-    bad "$DISPOSED 条 FdoNotificationDaemonSource already disposed：削位把合并源清空过（原生见空源自毁）"
+    bad "$DISPOSED lines of FdoNotificationDaemonSource already disposed: the trim emptied the merged source (native self-destructs on an empty source)"
 fi
 OTHER=$(journalctl --user -b 2>/dev/null | grep 'already disposed' | grep -vc 'notificationDaemon_FdoNotificationDaemonSource')
-[ "${OTHER:-0}" -eq 0 ] || echo "  （另有 $OTHER 条别的类的 disposed 行，属 shell 自身噪声，不参与判定）"
+[ "${OTHER:-0}" -eq 0 ] || echo "  (plus $OTHER disposed lines of other classes — shell noise, not judged)"
 if [ -z "$LOG" ]; then
-    ok "没有 notification-grouper / messageList 相关行"
+    ok "no notification-grouper / messageList lines"
 else
     echo "$LOG" | tail -20 | sed 's/^/        /'
     if echo "$LOG" | grep -qiE 'pending-(appname-)?mismatch'; then
-        bad "出现 pending-*-mismatch：_pending 的同步交接假设被打破，请上报（见 AGENTS.md）"
+        bad "a pending-*-mismatch line appeared: the _pending synchronous hand-off assumption broke, please report (see AGENTS.md)"
     fi
     if echo "$LOG" | grep -qi 'degraded'; then
-        bad "出现 degraded：上游改了被依赖的方法/模块名"
+        bad "a degraded line appeared: upstream renamed a method/module we depend on"
     fi
     if echo "$LOG" | grep -qiE 'JS ERROR.*(messageList|unexpand|expansion)'; then
         bad "the collapse defect still reproduces (the guard did not stop it) — check MAINTENANCE § Upgrade adaptation manual step 4"
@@ -115,51 +117,51 @@ fi
 
 cat <<'TXT'
 
----- 只有你的手能验的项（逐条做，做完在会话里回报结果；脚本不猜）
+---- Items only your eyes can verify (do each in turn and report the result back in the session; the script does not guess)
 
-  1. 真实发送方，不用 notify-send 合成：
-     - 让 CLI hook / agent 完成通知发一条（那一类 app_name 是 `notify-send` 的裸调用）
-     - 让带显式 `--app-name` 的工具连发 3 条不同进程
-     - 用 systemd 发的通知（`systemd-notify --user` 或 unit 的状态通知）各来一条
-     预期：同一声明名的三条合并成一个栈头；systemd 的那条按它自己的身份走。
+  1. Real senders, not synthetic notify-send:
+     - have a CLI hook / agent completion notification send one (that class of app_name is a bare `notify-send` call)
+     - have a tool with an explicit `--app-name` send 3 in a row from different processes
+     - send one each via systemd (`systemd-notify --user` or a unit's status notification)
+     Expected: the three sharing one declared name merge into one stack header; the systemd one goes by its own identity.
 
-  2. 点击语义（这三条就是历史上报过的体验问题）：
-     - 展开态里点一张无处可跳的卡：只有那一张消失，其余保留，日历不被关掉
-     - 折叠态的多卡合并组：第一下只展开，第二下才动作（原生行为，见 README）
-     - 折叠态里点某张卡的 ×：只关那张，不关整组
+  2. Click semantics (these three are the experience problems reported historically):
+     - in the expanded state, click a card with nowhere to jump: only that one disappears, the rest stay, the calendar is not closed
+     - a collapsed multi-card merged group: the first click only expands, the second acts (native behaviour, see README)
+     - in the collapsed state, click one card's ×: only that one closes, not the whole group
 
-  3. 卡死回归：把一个合并组反复展开/折叠 ~20 次，中途让它自然过期几张。
-     预期：列表始终有反应；journal 无 `TypeError … expansion`、无 messageList JS ERROR。
+  3. Freeze regression: expand/collapse one merged group ~20 times, letting a few expire naturally along the way.
+     Expected: the list always responds; no `TypeError … expansion` and no messageList JS ERROR in the journal.
 
-  0. 为什么这几条必须由你眼睛看：真会话的 org.gnome.Shell.Eval 是关的（要 unsafe-mode），
-     代理在实况里数不到源数量，只能验到「设置链路有没有通知到 shell」这一层（journal 有
-     grouping off/on 这类行）；「合并成一个栈 / 削位 / 例外名单不合并」必须看托盘。
+  0. Why these must be seen by your eyes: a real session has org.gnome.Shell.Eval off (needs unsafe-mode), so the
+     agent cannot count sources live and can only verify up to "did the settings chain notify the shell" (the journal
+     has grouping off/on lines); "merge into one stack / trim / the exception list not merging" needs the tray.
 
-  4. 设置页（gnome-extensions prefs notification-grouper@local）——L0.5 的内省门只能证明
-     成员存在，渲染与交互只能在这里看：
-     - 两个开关行、一个 1..10 的数字行、一个可展开的例外名列表行都**渲染出来**了
-     - 拨动开关不需要重新启用扩展：立刻发通知即可看到分组开/关的差别
-     - 例外表里填一个真实存在的发送方名字，它就该从合并组里退出去（注意大小写/.desktop 不敏感）
-     - "恢复默认"把四个键一次还原
-     - 每堆保留卡片数拨到 **1**：合并栈应当只留最新一张且 journal 无 already disposed
-       （这是本轮修掉的缺陷点，v9 之前会踩到已销毁的源）
-     - 深色与浅色主题下都看一眼，不要有你自己的控件混进原生样式
+  4. The prefs page (gnome-extensions prefs notification-grouper@local) — the L0.5 introspection gate can only prove
+     the members exist; rendering and interaction can only be seen here:
+     - two switch rows, one 1..10 number row, one expandable exception-name list row all **render**
+     - toggling a switch needs no re-enabling of the extension: send a notification immediately and the grouping on/off difference shows
+     - put a really-existing sender name in the exception list and it should leave the merged group (note case/.desktop insensitivity)
+     - "Restore every default" resets the four keys at once
+     - set cards kept per stack to **1**: the merged stack should keep only the newest card and the journal must show no already disposed
+       (this is the defect point fixed this round; before v9 it stepped onto a destroyed source)
+     - look once under a dark and a light theme; your own controls must not mix into the native style
 
-  5. 禁用后残留：关掉扩展后
-     - 合并栈应当消失（这是有意的，见 README § Known limitations）
-     - journal 里那行 `disabled, restored patches: …` 与"再发通知回到每进程一栈"一致
-     - 再启用一次，分组与兜底都回来（不需要注销）
+  5. Residue after disabling: after turning the extension off
+     - the merged stack should disappear (intentional, see README § Known limitations)
+     - the journal line `disabled, restored patches: …` should agree with "sending again returns to one stack per process"
+     - enable once more and both grouping and the workarounds come back (no logout needed)
 
-  6. 空闲代价：登录后放着 30 分钟不动，比较开/关两种状态的
-     `ps -o rss=,etime=,pcpu= -C gnome-shell`。这是**趋势**，不是判据；
+  6. Idle cost: after logging in, leave it for 30 minutes, comparing
+     `ps -o rss=,etime=,pcpu= -C gnome-shell` in the on and off states. This is a **trend**, not a verdict;
      the headless RSS number cannot measure real power draw (MAINTENANCE § Fixed measurement methods for power draw and leaks).
 
 TXT
 
-line "结论"
+line "conclusion"
 if [ "$FAIL" -eq 0 ]; then
-    echo "  机器可核对的部分全部 OK。上面 6 组手工项仍需你逐条回报。"
+    echo "  Everything machine-checkable is OK. The 6 manual groups above still need you to report each in turn."
 else
-    echo "  机器可核对的部分有 $FAIL 项需要你看过——它们未必是 bug，但都不能当成已验证。"
+    echo "  $FAIL machine-checkable item(s) need your eyes — they are not necessarily bugs, but none may be treated as verified."
 fi
 exit 0

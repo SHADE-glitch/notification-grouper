@@ -1,25 +1,28 @@
-// groupEngine.js — notification-grouper 纯函数（零配置，只按发出应用分组）.
+// groupEngine.js — the notification-grouper pure functions (zero-config; groups only by the sending app).
 //
-// 约束：
-// - 无 gi / 无 Shell 依赖，GJS (ESM) 与 Node 共用同一文件。
-// - 热路径零正则、零文件 IO、零 timer；只有字符串归一化与哈希查表。
-// - 引擎内没有任何具体应用名分支：通用名（notify-send / node-notifier）不是
-//   特例，只是发送方自己声明的身份，照样作为分组键。
+// Constraints:
+// - No gi / no Shell dependency; GJS (ESM) and Node share the same file.
+// - Zero regex, zero file IO and zero timers on the hot path; only string normalisation and hash lookups.
+// - The engine has no branch on any concrete app name: a generic name (notify-send / node-notifier) is
+//   not a special case, it is just the identity the sender declares, and it is used as the grouping key
+//   like any other.
 //
-// 分组键优先级：desktopEntry > appId > 归一化 app_name。
-// 发送方声明了什么就按什么分：同一个名字跨 pid 合并到一个共享 Source。
-// mergeable=false 的三种情形，全部交回原生 per-pid 隔离：app_name 归一化后为空
-// （发送方未声明任何身份）、grouping-enabled=false、命中 isolate-apps 例外表。
+// Grouping-key priority: desktopEntry > appId > normalised app_name.
+// Group by whatever the sender declares: the same name merges across pids into one shared Source.
+// The three mergeable=false cases all fall back to native per-pid isolation: app_name normalises to
+// empty (the sender declares no identity), grouping-enabled=false, or a hit in the isolate-apps
+// exception list.
 //
-// 条数上限：原生 messageTray.js:25 的 MAX_NOTIFICATIONS_PER_SOURCE = 10 会**丢弃**最旧的一条
-// （:577-580 同步 while 循环，reason=EXPIRED）。合并把"一个源"从"一个进程"变成"一个应用"，
-// 于是这个上限的作用域被放大——同一应用发到第 11 条时，最早那条就没了。本扩展不额外丢任何
-// 通知，但也不阻止原生丢；设置项 max-per-source 只能把 10 往小调（放大要复制原生
-// addNotification，多一个脆弱补丁点，不值）。
+// Per-source cap: MAX_NOTIFICATIONS_PER_SOURCE = 10 in native messageTray.js:25 **drops** the oldest
+// entry (:577-580, a synchronous while loop, reason=EXPIRED). Merging turns "one source" from "one
+// process" into "one app", so that cap's scope is widened — once the same app sends an 11th
+// notification, the earliest one is gone. This extension drops nothing extra, but it does not stop
+// native from dropping either; the max-per-source setting can only lower 10 (raising it would mean
+// copying native addNotification, one more fragile patch point, not worth it).
 
 /**
- * 归一化应用标识：去首尾空白、转小写、去 .desktop 后缀。
- * 不用正则（热路径约定），.desktop 为固定长度后缀直接切片。
+ * Normalise an app identity: trim, lower-case, strip the .desktop suffix.
+ * No regex (hot-path rule); .desktop is a fixed-length suffix, so slice it directly.
  * @param {string} s
  * @returns {string}
  */
@@ -29,18 +32,18 @@ export function normalizeName(s) {
 }
 
 /**
- * 计算分组。
+ * Compute the grouping.
  * @param {object} [input]
- * @param {string} [input.appName]      FDO Notify 第一个参数
- * @param {string} [input.desktopEntry] hints['desktop-entry']（unpacked 后）
- * @param {string} [input.appId]        预留：portal/Gtk 路径的应用 id（FDO 路径一般无）
- * @param {boolean} [input.enabled]     设置项 grouping-enabled；false 时一律走原生
- * @param {Set<string>|null} [input.isolated] 已归一化的例外应用名集合（见 normalizeIsolate）
+ * @param {string} [input.appName]      the first argument of FDO Notify
+ * @param {string} [input.desktopEntry] hints['desktop-entry'] (after unpacking)
+ * @param {string} [input.appId]        reserved: the app id on the portal/Gtk path (usually absent on the FDO path)
+ * @param {boolean} [input.enabled]     the grouping-enabled setting; false always falls through to native
+ * @param {Set<string>|null} [input.isolated] the set of already-normalised exception app names (see normalizeIsolate)
  * @returns {{groupKey: string|null, mergeable: boolean}}
- *   mergeable=true 时 groupKey 形如 `app:<归一化标识>`，可复用同一共享 Source；
- *   mergeable=false 时 groupKey 为 null，扩展层走原生 per-pid 隔离。
- *   例外应用与关闭分组都归到 mergeable=false：语义相同（"这条不合并"），
- *   原生 fallthrough 一条路就够，不在扩展层再添分支。
+ *   When mergeable=true the groupKey looks like `app:<normalised identity>` and can reuse one shared Source;
+ *   when mergeable=false the groupKey is null and the extension layer falls back to native per-pid isolation.
+ *   Exception apps and disabled grouping both land on mergeable=false: the meaning is the same ("do not merge
+ *   this one"), one native fallthrough path is enough, and no extra branch is added in the extension layer.
  */
 export function computeGroup({ appName, desktopEntry, appId, enabled = true, isolated = null } = {}) {
     if (!enabled)
@@ -68,8 +71,9 @@ function _group(identity, isolated) {
 }
 
 /**
- * 把用户填的例外列表归一化成查找集合（设置里存的是原始字符串，比较发生在热路径，
- * 所以归一化只在读取时做一次）。空项丢弃，重复项合并，大小写/空白/.desktop 不敏感。
+ * Normalise the user's exception list into a lookup set (the settings store the raw strings and the
+ * comparison happens on the hot path, so normalisation is done once, on read). Empty entries are
+ * dropped, duplicates collapse, and case / surrounding spaces / .desktop do not matter.
  * @param {string[]} list
  * @returns {Set<string>}
  */
@@ -83,14 +87,15 @@ export function normalizeIsolate(list) {
     return out;
 }
 
-// 需要挂接的补丁点（缺任一 -> 扩展自降级为完全惰性，只记一条警告）。
+// The patch points that must be attached (either missing -> the extension self-degrades to completely inert, logging one warning).
 export const REQUIRED_PATCHES = [
     'NotifyAsync',
     '_getSourceForPidAndName',
 ];
 
-// UI 兜底点：修的是 GNOME 原生 messageList.js 的缺陷，与分组机制无关，
-// 因此与 REQUIRED_PATCHES 相互独立 —— 取不到就只丢兜底，绝不拖累分组。
+// UI workaround points: they fix defects in GNOME's native messageList.js and are unrelated to the
+// grouping mechanism, so they are independent of REQUIRED_PATCHES — failing to reach them costs only
+// the workarounds and never drags grouping down.
 export const REQUIRED_UI_GUARDS = [
     'Message.unexpand',
     'NotificationMessageGroup.collapse',
@@ -98,16 +103,17 @@ export const REQUIRED_UI_GUARDS = [
 ];
 
 /**
- * UI 兜底点自检（纯函数，供 _attachUiGuards 自降级与单测共用）。
+ * Self-check of the UI workaround points (a pure function, shared by _attachUiGuards self-degradation
+ * and the unit tests).
  * @param {object} [info]
- * @param {boolean} [info.moduleLoaded] messageList.js 是否 import 成功
+ * @param {boolean} [info.moduleLoaded] whether messageList.js imported successfully
  * @param {boolean} [info.hasMessage]
  * @param {boolean} [info.hasGroup]
  * @param {boolean} [info.hasNotifMessage]
  * @param {boolean} [info.hasUnexpand]
  * @param {boolean} [info.hasCollapse]
  * @param {boolean} [info.hasNotifClose]
- * @param {string} [info.detail] 诊断用
+ * @param {string} [info.detail] for diagnostics
  * @returns {{apply: boolean, warnings: string[], guards: string[]}}
  */
 export function checkUiGuardPoints(info = {}) {
@@ -134,10 +140,11 @@ export function checkUiGuardPoints(info = {}) {
 }
 
 /**
- * 挂接点自检（纯函数，供扩展 enable 自降级与单测共用）。
+ * Self-check of the attach points (a pure function, shared by the extension's enable self-degradation
+ * and the unit tests).
  * @param {object} [info]
  * @param {boolean} [info.hasFdo]
- * @param {string} [info.fdoKeys] 诊断用：实际看到的属性名
+ * @param {string} [info.fdoKeys] for diagnostics: the property names actually seen
  * @param {boolean} [info.hasNotifyAsync]
  * @param {boolean} [info.hasGetSource]
  * @returns {{attach: boolean, warnings: string[], patches: string[]}}

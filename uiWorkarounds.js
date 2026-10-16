@@ -1,26 +1,28 @@
-// uiWorkarounds.js — GNOME 50 原生 messageList 缺陷的临时兜底（三处原型补丁）。
+// uiWorkarounds.js — temporary workarounds for GNOME 50's native messageList defects (three prototype patches).
 //
-// 定位：这不是分组功能，而是替上游缺陷擦屁股，所以它必须是一个**可撤销的单元**。
-// 上游修复后按下面清单删除（实测涉及 9 个文件；"rm 一个文件就行"是假的）：
+// Role: this is not a grouping feature but cleanup for an upstream defect, so it must be a
+// **deletable unit**. Once upstream fixes it, delete it following the checklist below (measured to
+// touch 9 files; "just rm one file" is false):
 //   1. rm uiWorkarounds.js
-//   2. rm tests/headless-ui-guard.sh      —— 这台激发机只为兜底存在
-//   3. package.json                       —— 去掉 verify:ui-guard 脚本
-//   4. extension.js                       —— 顶部注释、import、disable() 的 detach() 调用
-//      与日志里的 guards: 一段、_attach() 末尾的 attach({...})
-//   5. groupEngine.js                     —— REQUIRED_UI_GUARDS 与 checkUiGuardPoints
-//   6. tests/test-groupEngine.mjs         —— 那 2 个 checkUiGuardPoints 用例及其 import
-//   7. tests/repo.test.mjs                —— HOME.guard、REQUIRED_UI_GUARDS 两处、
-//      "兜底不得漏进 extension.js" 那条断言
-//   8. tests/check-log.mjs                —— CODE_PATHS 去掉 'uiWorkarounds.js'
-//   9. tests/headless-verify.sh           —— Uw import、guardsMountedBeforeJudging、
-//      guardsRestoredToPristine、disable log matches reality 及 python 侧对应条目
-// 删完后 CHANGELOG 记一条 revert，引用引入兜底的 D-id。
-// 与分组层（extension.js）和纯函数层（groupEngine.js）都独立降级：拿不到
-// messageList.js 只丢这三处兜底，分组照常。
+//   2. rm tests/headless-ui-guard.sh      — this provocation harness exists only for the workarounds
+//   3. package.json                       — drop the verify:ui-guard script
+//   4. extension.js                       — the header comment, the import, the detach() call in
+//      disable(), the guards: part of the log line, and attach({...}) at the end of _attach()
+//   5. groupEngine.js                     — REQUIRED_UI_GUARDS and checkUiGuardPoints
+//   6. tests/test-groupEngine.mjs         — the 2 checkUiGuardPoints cases and their import
+//   7. tests/repo.test.mjs                — HOME.guard, both REQUIRED_UI_GUARDS spots, and the
+//      "workarounds must not leak into extension.js" assertion
+//   8. tests/check-log.mjs                — remove 'uiWorkarounds.js' from CODE_PATHS
+//   9. tests/headless-verify.sh           — the Uw import, guardsMountedBeforeJudging,
+//      guardsRestoredToPristine, "disable log matches reality" and the matching python-side entries
+// After deleting, record a revert in CHANGELOG citing the D-id that introduced the workarounds.
+// They degrade independently of the grouping layer (extension.js) and the pure-function layer
+// (groupEngine.js): failing to reach messageList.js costs only these three workarounds, never grouping.
 //
-// 状态是模块级的，不是实例级的：原型补丁本来就是进程全局的，一个 shell 里
-// 只会有一份扩展代码，模块态与"当前是否已挂"天然同构。_origUi 非 null 仍是
-// 唯一的"已挂"判据（与 daemon 层的 _orig 同一模式）。
+// The state is module-level, not instance-level: prototype patches are process-global anyway, only one
+// copy of the extension code ever exists in a shell, so module state and "is it currently mounted" are
+// naturally isomorphic. A non-null _origUi is still the single "mounted" judge (the same pattern as the
+// daemon layer's _orig).
 
 import { checkUiGuardPoints, REQUIRED_UI_GUARDS } from './groupEngine.js';
 
@@ -30,38 +32,41 @@ let _origUi = null;
 let _applied = [];
 
 /**
- * 挂三处兜底。必须 await（动态 import），但调用方（enable 路径）**不许** await 它：
- * enable() 保持同步是 _pending 交接假设的一部分。
+ * Mount the three workarounds. It must await (dynamic import), but the caller (the enable path)
+ * **must not** await it: keeping enable() synchronous is part of the _pending hand-off assumption.
  *
  * @param {object} deps
- * @param {(src: object) => boolean} deps.ownsSource 该 Source 是否本扩展自建
- *        （传谓词不传 Set：enable() 若重建 Set，捕获旧 Set 的兜底会无声失效）
- * @param {(msg: string) => void} deps.log 日志出口（保持"每事件一行、永不记 body"）
- * @param {(e: any, msg: string) => void} deps.onError 原生缺陷被触发时的栈出口
- * @param {() => boolean} deps.alive 扩展当前是否仍启用（await 之后必须复查）
- * @returns {Promise<string[]>} 实际挂上的兜底名
+ * @param {(src: object) => boolean} deps.ownsSource whether that Source was created by this extension
+ *        (pass a predicate, not a Set: if enable() rebuilds the Set, a workaround holding the old Set
+ *        silently stops working)
+ * @param {(msg: string) => void} deps.log the log sink (keeping "one line per event, never the body")
+ * @param {(e: any, msg: string) => void} deps.onError the stack sink when a native defect fires
+ * @param {() => boolean} deps.alive whether the extension is still enabled (must be re-checked after the await)
+ * @returns {Promise<string[]>} the workaround names actually mounted
  */
 export async function attach({ ownsSource, log, onError, alive }) {
-    detach();                      // 幂等：先剥掉可能残留的上一层
+    detach();                      // idempotent: strip any leftover layer from a previous round first
 
     let mod = null;
     let detail = '';
     try {
-        // 动态 import：上游一旦改名/删文件，静态 import 会让整个扩展进 ERROR 态、
-        // 连分组都不再工作，而那比"没有兜底"糟得多。
+        // Dynamic import: if upstream renames or deletes the file, a static import would put the whole
+        // extension into an ERROR state where even grouping stops working, which is far worse than
+        // "no workarounds".
         mod = await import('resource:///org/gnome/shell/ui/messageList.js');
     } catch (e) {
         detail = e && e.message ? e.message : String(e);
     }
 
-    // 动态导入期间可能已经 disable：此时挂上去就再也无人还原了。
+    // We may have been disabled during the dynamic import: mounting then would leave nobody to restore it.
     if (!alive())
         return [];
 
-    // detach 必须在 await *之后*、捕获之前。放在 await 之前等于没放：两次 enable
-    // 的这段会在同一轮微任务里先后续上，后者把前者的包裹层当作"原生方法"存下来，
-    // 原型于是叠层，而 disable() 只能剥掉最外一层——剩下的一层永久存活，
-    // 还会让 disable 日志报出"已还原三处兜底"的假结果。
+    // detach must run *after* the await and before capturing. Placing it before the await is the same
+    // as not placing it: two enable() calls resume this section in the same microtask round, and the
+    // later one stores the earlier one's wrapper as the "native method", so the prototype stacks layers
+    // and disable() can only strip the outermost one — the remaining layer lives forever and even makes
+    // the disable log report the false result "restored three workarounds".
     detach();
 
     const Message = mod ? mod.Message ?? null : null;
@@ -95,13 +100,13 @@ export async function attach({ ownsSource, log, onError, alive }) {
         notifClose: NotificationMessage.prototype.close,
     };
 
-    // 兜底 1 —— Message.unexpand(animate)（messageList.js:644）：
-    // actor 已从容器摘下时没有 layout manager，原生 :646 的
-    // ease_property('@layout.expansion') 需要 layout manager，取不到即同步抛出
-    // （environment.js:196 的 _easeAnimatableProperty 是普通函数，.catch() 抓不到）。
-    // 无 layout manager 时把终态直接落位并返回，让 collapse() 的 forEach 能跑完
-    // 剩下的消息——否则一条脏消息会连带让它后面的消息全部留在展开态。
-    // 对健康 actor 一律原样转发，绝不代替原生做主。
+    // Workaround 1 — Message.unexpand(animate) (messageList.js:644):
+    // once an actor is detached from its container it has no layout manager, and native :646's
+    // ease_property('@layout.expansion') needs one; without it the call throws synchronously
+    // (_easeAnimatableProperty at environment.js:196 is a plain function, so .catch() cannot see it).
+    // With no layout manager, land the final state directly and return, so collapse()'s forEach can
+    // finish the remaining messages — otherwise one dirty message leaves every message after it stuck
+    // expanded. For a healthy actor, forward untouched and never second-guess native.
     const origUnexpand = _origUi.unexpand;
     Message.prototype.unexpand = function (animate) {
         let hasLayout = false;
@@ -122,11 +127,11 @@ export async function attach({ ownsSource, log, onError, alive }) {
         return origUnexpand.call(this, animate);
     };
 
-    // 兜底 2 —— NotificationMessageGroup.collapse()（messageList.js:988 async）：
-    // forEach :992 一旦抛出，:998 的 _expanded=false 与 :1000 的 _cover.show() 永远
-    // 轮不到，分组永久停在半折叠态，之后每次点击都被原生 :1114-1119 的
-    // if (!this.expanded) 吞掉——用户看到的"通知栏卡住、点什么都没反应"。
-    // 这里捕获抛出并把状态落位，不改语义。
+    // Workaround 2 — NotificationMessageGroup.collapse() (messageList.js:988, async):
+    // if forEach at :992 throws, :998's _expanded=false and :1000's _cover.show() never run, so the
+    // group stays half-collapsed forever and every later click is swallowed by native :1114-1119's
+    // if (!this.expanded) — what the user sees as "the notification area is stuck, clicks do nothing".
+    // Here we catch the throw and land the state, without changing semantics.
     const origCollapse = _origUi.collapse;
     Group.prototype.collapse = async function () {
         try {
@@ -143,13 +148,16 @@ export async function attach({ ownsSource, log, onError, alive }) {
         }
     };
 
-    // 兜底 3 —— NotificationMessage.close()：折叠组里点一张卡的 ×，原生
-    // messageList.js:1107-1112 先 signal_stop_emission 再 group.close()，把"关一张"
-    // 升级成"关整组"。原生一个源≈一张卡，代价看不见；合并让一组变 N 张，代价被放大。
-    // 只在**本扩展自建的源**、且组处于折叠态时，改为只关这一张：直接跑 close 信号的
-    // 默认处理器 on_close()（GJS 按 on_<signal> 自动接线，实测确认），跳过派发，
-    // 组处理器就不会把这次 close 升级成整组关闭。原生源、展开态、单卡组一律走原生
-    // 路径（单卡组按 :952 的 getter 视为已展开）。判定失败就落回原生，绝不吞掉一次关闭。
+    // Workaround 3 — NotificationMessage.close(): clicking one card's × in a collapsed group makes
+    // native messageList.js:1107-1112 call signal_stop_emission and then group.close(), escalating
+    // "close one card" into "close the whole group". A native source holds roughly one card, so the
+    // cost is invisible; merging turns a group into N cards, so the cost is amplified. Only for a
+    // **source this extension created** and a collapsed group do we close just this one card: run the
+    // close signal's default handler on_close() directly (GJS auto-wires on_<signal>, verified),
+    // skipping the emission so the group handler cannot escalate this close into closing the whole
+    // group. Native sources, expanded groups and one-card groups always take the native path (a
+    // one-card group reads as expanded per the getter at :952). If the judgement fails, fall back to
+    // native and never swallow a close.
     const origNotifClose = _origUi.notifClose;
     NotificationMessage.prototype.close = function () {
         try {
@@ -162,7 +170,7 @@ export async function attach({ ownsSource, log, onError, alive }) {
                 return;
             }
         } catch {
-            /* 判定失败就落回原生 */
+            /* judgement failed: fall back to native */
         }
         return origNotifClose.call(this);
     };
@@ -172,8 +180,9 @@ export async function attach({ ownsSource, log, onError, alive }) {
 }
 
 /**
- * 还原三处兜底。可安全重复调用；_origUi 非 null 即"当前已挂"的唯一判据。
- * @returns {string[]} 本次真正还原的兜底名（未挂过时为空数组）
+ * Restore the three workarounds. Safe to call repeatedly; a non-null _origUi is the single
+ * "currently mounted" judge.
+ * @returns {string[]} the workaround names actually restored this time (an empty array when never mounted)
  */
 export function detach() {
     const o = _origUi;
@@ -200,7 +209,7 @@ export function detach() {
     return [...REQUIRED_UI_GUARDS];
 }
 
-/** 当前挂着的兜底名（attach 完成后非空；detach/降级后为空）。 */
+/** the currently mounted workaround names (non-empty after attach completes; empty after detach/degradation). */
 export function applied() {
     return [..._applied];
 }

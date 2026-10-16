@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// scripts/bench.mjs — notification-grouper 引擎基准（node scripts/bench.mjs）。
+// scripts/bench.mjs — the notification-grouper engine benchmark (node scripts/bench.mjs).
 //
-// 引擎已瘦身为零配置纯函数 computeGroup()：热路径只有字符串归一化 + 哈希查表，
-// 无正则、无规则扫描、无文件 IO、无 timer。本基准只跑真实 app-only 输入分布。
+// The engine has been slimmed to the zero-config pure function computeGroup(): the hot path is only
+// string normalisation + hash lookups, with no regex, no rule scanning, no file IO and no timers.
+// This benchmark runs only the real app-only input distribution.
 
 import { computeGroup } from '../groupEngine.js';
 
@@ -19,7 +20,7 @@ function bench(label, iters, fn) {
     return { total, perOp };
 }
 
-// 输入混合：40% desktop-entry、40% 具名 app_name、20% 通用名/空名（前者合并，后者隔离）
+// Input mix: 40% desktop-entry, 40% named app_name, 20% generic/empty name (the former merges, the latter is isolated)
 const inputs = Array.from({ length: 512 }, (_, i) => {
     if (i % 5 < 2)
         return { appName: 'electron-app', desktopEntry: `Tool${i % 16}.desktop` };
@@ -29,10 +30,10 @@ const inputs = Array.from({ length: 512 }, (_, i) => {
 });
 
 const N1 = 10_000, N2 = 100_000;
-console.log(`== computeGroup app-only 基准（node ${process.version}）`);
+console.log(`== computeGroup app-only benchmark (node ${process.version})`);
 bench(`×${N1}`, N1, (i) => computeGroup(inputs[i % 512]));
 
-console.log(`== burst：${N2} 条混合通知`);
+console.log(`== burst: ${N2} mixed notifications`);
 const t0 = hr();
 let merged = 0, isolated = 0;
 for (let i = 0; i < N2; i++) {
@@ -43,5 +44,5 @@ for (let i = 0; i < N2; i++) {
         isolated++;
 }
 const total = ms(t0);
-console.log(`  ${N2} 条 / ${total.toFixed(1)} ms = ${(N2 / total * 1000 | 0).toLocaleString()} 条/s（${((total * 1000) / N2).toFixed(3)} µs/op）`);
-console.log(`  合并 ${merged} / 隔离 ${isolated}`);
+console.log(`  ${N2} notifs / ${total.toFixed(1)} ms = ${(N2 / total * 1000 | 0).toLocaleString()} notifs/s (${((total * 1000) / N2).toFixed(3)} µs/op)`);
+console.log(`  merged ${merged} / isolated ${isolated}`);

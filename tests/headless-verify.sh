@@ -61,9 +61,10 @@ set -u
 EXT=${1:-$(CDIR=$(cd "$(dirname "$0")/.." && pwd) && echo "$CDIR")}
 V=${TMPDIR:-/tmp}/ng-verify
 UUID=notification-grouper@local
-# settings-schema 必须从 metadata.json 取：探针是伪造 metadata 直接构造扩展的，
-# stub 里少这个键，getSettings() 就会抛，然后整条断言链全变成 "got None"——
-# 那看起来像设置面坏了，其实是 harness 自己的仪器缺件。
+# settings-schema must be read from metadata.json: the probe builds the extension from forged
+# metadata, so if the stub lacks this key getSettings() throws and the whole assertion chain reads
+# "got None" — which looks like a broken settings surface but is really a missing part in the
+# harness's own instrument.
 SCHEMA=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('settings-schema',''))" "$EXT/metadata.json")
 [ -n "$SCHEMA" ] || { echo "metadata.json has no settings-schema; nothing to verify" >&2; exit 1; }
 LABEL=verify
@@ -287,12 +288,14 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         };
         say('settingsHandlerCount', inst._settingsHids.length);
 
-        // FDO 端到端：原生把 Notification 的 destroy reason 映射成发出去的
-        // NotificationClosed 的 reason（notificationDaemon.js:178-195）。信号是 shell
-        // 自己广播的，而**总线不会把广播信号送回给发送者**，所以在 shell 进程里
-        // subscribe 永远收不到——必须起一个同总线的小监听。监听从削位阶段之前开始，
-        // 期间没有任何别的关闭来源：这些通知是 urgency=critical（不超时自动消失），
-        // 唯一会发 NotificationClosed 的就是我们和被原生削掉的最旧卡片。
+        // FDO end-to-end: native maps a Notification's destroy reason onto the reason of the
+        // NotificationClosed it emits (notificationDaemon.js:178-195). The signal is broadcast by
+        // the shell itself, and **a bus never delivers a broadcast back to its own sender**, so
+        // subscribing from inside the shell process would never receive it — a small monitor on the
+        // same bus is required. The monitor starts before the trim phase, during which there is no
+        // other source of closes: these notifications are urgency=critical (they never expire on
+        // their own), so the only things that emit NotificationClosed are us and the oldest card
+        // native trimmed.
         const monArg = 'type=signal,interface=org.freedesktop.Notifications,' +
             'member=NotificationClosed';
         const [, monPid] = GLib.spawn_async(null,
@@ -350,8 +353,9 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
             (m, s) => Math.max(m, s.notifications.length), 0));
         say('capTenSources', titled('CapTen').length);
 
-        // 关掉监听并读它看到的东西。0 条不是产品红，是仪器没接上——FAIL 文案里带着
-        // 计数，两种情况一眼可分。
+        // Stop the monitor and read what it saw. A count of 0 is not a product failure but an
+        // instrument that never attached — the FAIL text carries the count so the two cases are
+        // distinguishable at a glance.
         GLib.spawn_async(null,
             ['/bin/sh', '-c', 'kill ' + monPid + ' 2>/dev/null; true'],
             null, GLib.SpawnFlags.DEFAULT, null, null);

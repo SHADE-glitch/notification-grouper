@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <!-- 零配置默认：四个键全部取"扩展当前行为"的值，装上即可用，不动任何键。
-       max-per-source 的上界 10 不是随意数字——那是原生 messageTray.js 的
-       MAX_NOTIFICATIONS_PER_SOURCE；本扩展只允许在原生之下收紧，不提供放宽
-       （放宽要复制原生 addNotification，多一个脆弱补丁点，不划算）。 -->
+  <!-- Zero-config defaults: all four keys take the value of "the extension's current behaviour", so
+       it works as installed without touching any key. The max-per-source upper bound of 10 is not an
+       arbitrary number — it is MAX_NOTIFICATIONS_PER_SOURCE in native messageTray.js; this extension
+       only allows tightening below native, never loosening (loosening would mean copying native
+       addNotification, one more fragile patch point, not worth it). -->
   <schema id="org.gnome.shell.extensions.notification-grouper"
           path="/org/gnome/shell/extensions/notification-grouper/">
 

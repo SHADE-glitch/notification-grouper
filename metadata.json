@@ -8,5 +8,5 @@
   "settings-schema": "org.gnome.shell.extensions.notification-grouper",
   "version": 9,
   "url": "https://github.com/SHADE-glitch/notification-grouper",
-  "_note": "shell-version 仅声明 50（本扩展在 50.1 逐点核对过三层补丁面：daemon 两方法、自建源的 open() 覆盖、uiWorkarounds.js 的三处原型兜底，以及扩展自带 schema 的读取路径；运行时验证完整）。48/49 源码级兼容但未运行时验证，不声明。依赖清单见 MAINTENANCE.md。"
+  "_note": "shell-version declares 50 only (this extension was checked point by point against 50.1 across all three patch surfaces: the two daemon methods, the self-created sources' open() override, and the three prototype workarounds in uiWorkarounds.js, plus the extension's own schema read path; runtime verification is complete). 48/49 are source-level compatible but not runtime-verified, so they are not declared. See MAINTENANCE.md for the dependency list."
 }

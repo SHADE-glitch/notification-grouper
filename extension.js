@@ -1,37 +1,50 @@
-// notification-grouper@local — GNOME 50 通用通知分组（零配置，只按发出应用分组）。
+// notification-grouper@local — generic notification grouping for GNOME 50 (zero-config; groups only by the sending app).
 //
-// 机制：挂接 FDO 实例的两个方法 + 一处"只在自建源上"的行为覆盖
-// （自降级：前两个缺任一 -> 完全惰性，不半挂载；后两者独立降级）：
-//  1. NotifyAsync 包裹层：入口读 hints（deepUnpack），computeGroup()（纯函数，
-//     见 groupEngine.js）得 {groupKey, mergeable}，暂存 _pending（携带 senderPid
-//     与原始 app_name 两个一致性校验位）。50.1 源码核对：NotifyAsync 为同步方法
-//     （notificationDaemon.js），从入口到 Source 查找之间无 await，整文件无
-//     async——try/finally 暂存安全（JS 单线程 + D-Bus 同步派发，无重入）。
-//  2. _getSourceForPidAndName 包裹层：消费 _pending。mergeable 时按 groupKey
-//     复用/新建共享 Source；mergeable=false（app_name 为空）一律原生直通。
-//     已解析到 source.app 的走 _getSourceForApp，原生已按 App 成栈，本扩展不碰；
-//     Gtk 路径（GtkNotificationDaemon*）是另一个独立对象与类，不引用不 patch。
-//  3. 新建共享 Source 时覆盖它的 open()：原生 open() 会 destroyNonResident-
-//     Notifications() 把整个源清空，原生一个源≈一张卡，合并后却是一组——点一张
-//     卡就清整组。覆盖后只保留 openApp()（本源 app 恒 null，实为 no-op），被点的
-//     那张仍由 Notification.activate() 自行销毁。原生源不碰、disable 时还原。
+// Mechanism: wrap two methods on the FDO instance plus one behaviour override that applies
+// only to self-created sources (self-degradation: if either of the first two is missing the
+// extension stays completely inert rather than half-mounted; the other two degrade independently):
+//  1. The NotifyAsync wrapper: the entry point reads hints (deepUnpack), computeGroup() (a pure
+//     function, see groupEngine.js) yields {groupKey, mergeable}, and the result is stashed in
+//     _pending (carrying two consistency-check fields: senderPid and the raw app_name). Source
+//     check against 50.1: NotifyAsync is a synchronous method (notificationDaemon.js) with no
+//     await between the entry point and the source lookup, and the whole file has no async — so
+//     the try/finally stash is safe (JS is single-threaded and D-Bus dispatch is synchronous,
+//     so there is no re-entry).
+//  2. The _getSourceForPidAndName wrapper: consumes _pending. When mergeable it reuses or creates
+//     a shared Source by groupKey; when mergeable=false (empty app_name) it always falls through
+//     to native. Sources already resolved to source.app go through _getSourceForApp, where native
+//     already stacks by App and this extension stays out; the Gtk path (GtkNotificationDaemon*)
+//     is a separate object and class, not referenced and not patched.
+//  3. When creating a shared Source, override its open(): native open() calls
+//     destroyNonResidentNotifications(), which empties the whole source — a native source holds
+//     roughly one card, but a merged source holds a whole group, so clicking one card wipes the
+//     group. The override keeps only openApp() (a no-op here since this source's app is always
+//     null), and the clicked card is still destroyed by Notification.activate() itself. Native
+//     sources are never touched and are restored on disable.
 //
-// 覆盖范围：所有解析不到 App 的来源（_getSourceForPidAndName 路径）——有 app_name
-// 但无 App 的来源，原生每次新 pid 建新 Source，本扩展按归一化 app_name 合并到
-// 同一共享 Source，实现"按发出应用分组"。
+// Coverage: every source that resolves to no App (the _getSourceForPidAndName path) — sources
+// that have an app_name but no App. Native creates a new Source for every new pid; this extension
+// merges them into one shared Source by normalised app_name, which is what "group by the sending
+// app" means.
 //
-// 界面/图标/上限全部走原生：不覆盖 _appName/_appIcon，不注入按钮。唯一的界面行为
-// 差异是上面第 3 点（自建源的 open() 不再批量清空）与下面的 close 兜底，二者都只
-// 作用于本扩展自建的合并源。disable 时还原 daemon 两处补丁、自建源的 open() 覆盖、
-// 三处 UI 方法兜底、断开每源信号，并**销毁本扩展自建的合并源**（它们持有的
-// watch_name 与 policy 只在 destroy() 里释放，且留着的话还原后的原生 open() 会重新
-// 批量清空整组）——于是禁用即撤销本扩展造成的全部状态。
+// UI, icons and the cap all stay native: _appName/_appIcon are not overridden and no button is
+// injected. The only UI behaviour differences are item 3 above (a self-created source's open() no
+// longer mass-clears) and the close workaround below, both of which act only on the merged sources
+// this extension creates. On disable we restore the two daemon patches, the self-created sources'
+// open() overrides and the three UI workarounds, disconnect every per-source signal, and
+// **destroy the merged sources this extension created** (the watch_name and policy they hold are
+// released only in destroy(), and leaving them alive would let the restored native open()
+// mass-clear the whole group again) — so disabling undoes every piece of state this extension
+// produced.
 //
-// 日志：默认安静——enable/attach/disable 各一行；无 per-notify 日志，永不记 body。
+// Logging: quiet by default — one line each for enable/attach/disable; no per-notify logging and
+// never the body.
 //
-// UI 兜底在 uiWorkarounds.js：GNOME 50 原生 messageList.js 有三处会把 N 卡合并组坑到的
-// 行为（折叠竞态 ×2、关一张升级成关整组）。取不到 messageList.js 只丢兜底、分组照常；
-// 上游修复后那个文件整块删除——所以它是独立的一个模块，不是这里的三段注释。
+// The UI workarounds live in uiWorkarounds.js: GNOME 50's native messageList.js has three
+// behaviours that trap an N-card merged group (a collapse race ×2, and closing one card escalating
+// to closing the whole group). Failing to reach messageList.js costs only the workarounds, never
+// grouping; once upstream fixes them that file is deleted as a unit — which is why it is its own
+// module rather than three comment blocks here.
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -40,26 +53,27 @@ import { NotificationDestroyedReason } from 'resource:///org/gnome/shell/ui/mess
 import { computeGroup, checkAttachPoints, normalizeIsolate } from './groupEngine.js';
 import * as UiWorkarounds from './uiWorkarounds.js';
 
-// 原生条数上限。schema 里 max-per-source 的上界必须等于它——超过 10 需要复制原生
-// addNotification（销毁旧条目 + 两处 connect + push + countUpdated），多一个脆弱补丁点。
+// Native per-source cap. The upper bound of max-per-source in the schema must equal it —
+// going past 10 would mean copying native addNotification (destroy the old entry + two
+// connects + push + countUpdated), which adds one more fragile patch point.
 const NATIVE_MAX_PER_SOURCE = 10;
 
 const LOG_PREFIX = '[notification-grouper]';
 
 export default class NotificationGrouperExtension extends Extension {
     _enabled = false;
-    /** groupKey -> {source, hid, origOpen, patchedOpen}（共享 Source 缓存，destroy 自清） */
+    /** groupKey -> {source, hid, origOpen, patchedOpen} (shared-Source cache; self-clears on destroy) */
     _shared = new Map();
-    /** 本扩展创建的合并 Source 集合：UI 兜底据此判断"这张卡属于本扩展" */
+    /** the set of merged Sources this extension created: the UI workarounds use it to tell "this card belongs to this extension" */
     _ownSources = new Set();
-    /** 当前同步调用中的 computeGroup 结果与校验上下文（见文件头设计 1） */
+    /** the computeGroup result and check context of the current synchronous call (see design item 1 in the file header) */
     _pending = null;
     _orig = null;
     _appliedPatches = [];
     _warned = new Set();
-    /** 设置缓存：热路径只读内存，绝不每个通知去 get_*（changed:: 时刷新） */
+    /** settings cache: the hot path reads memory only and never calls get_* per notification (refreshed on changed::) */
     _settings = null;
-    /** changed:: 的 handler id，disable() 必须逐个 disconnect */
+    /** handler ids for changed::; disable() must disconnect each one */
     _settingsHids = [];
     _groupingEnabled = true;
     _uiGuardsEnabled = true;
@@ -68,19 +82,21 @@ export default class NotificationGrouperExtension extends Extension {
 
     enable() {
         this._enabled = true;
-        // 只重置纯记账字段。**绝不**在这里重建 _shared / _ownSources：它们登记的是
-        // 上一轮已挂到别人对象上的补丁（自建源的 open() 覆盖、每源 destroy 连接）。
-        // 一重建就没人持有它们，disable() 便无从还原——补丁跨 disable 存活，
-        // 且 close 兜底会因 _ownSources 丢条目而无声失效。
-        // 与 _attach() 先 _detachPatches() 是同一条不变量：enable() 必须幂等。
+        // Reset only pure bookkeeping fields. **Never** rebuild _shared / _ownSources here:
+        // they record the patches mounted onto other people's objects in the previous round
+        // (self-created sources' open() overrides and per-source destroy connections).
+        // Rebuilding them orphans those patches, so disable() has nothing to restore — the
+        // patches would outlive disable, and the close workaround would silently fail because
+        // _ownSources lost its entries. Same invariant as _attach() calling _detachPatches()
+        // first: enable() must be idempotent.
         this._pending = null;
         this._appliedPatches = [];
         this._warned = new Set();
-        // 先读设置再挂接：包装层与兜底挂载都依赖这些缓存值。
+        // Read settings before attaching: both the wrappers and the workaround mount depend on these cached values.
         this._loadSettings();
-        // Main.notificationDaemon 在 main.js 早于 ExtensionManager 创建
-        // （notificationDaemon 构造器内同步建 _fdoNotificationDaemon），
-        // 故 enable 时已就绪，无需异步导入。
+        // Main.notificationDaemon is created in main.js before ExtensionManager
+        // (the notificationDaemon constructor synchronously builds _fdoNotificationDaemon),
+        // so it is already ready at enable time and no async import is needed.
         try {
             this._attach();
         } catch (e) {
@@ -99,20 +115,21 @@ export default class NotificationGrouperExtension extends Extension {
             } catch {
                 /* already gone */
             }
-            // 还原合并源上的 open() 覆盖（原生源从未被覆盖过）。
+            // Restore the open() override on the merged source (native sources were never overridden).
             try {
                 if (rec.patchedOpen && rec.source.open === rec.patchedOpen)
                     rec.source.open = rec.origOpen;
             } catch {
                 /* source already disposed */
             }
-            // 本扩展自建的源不得活过 disable()。它持有一个 Gio.DBus.watch_name 订阅和
-            // 一个 NotificationPolicy，两者只在 Source.destroy() 里释放
-            // （messageTray.js:597-609：policy.destroy() + run_dispose()）；更关键的是
-            // 还原成原生 open() 之后，原生那方法的第二步 destroyNonResidentNotifications()
-            // 会重新作用在一个多卡源上，"点一张卡清掉整组"于是回到禁用之后。
-            // 到这里 rec 仍在表里，说明该源没被销毁过（销毁会经 rec.hid 自清这条记录），
-            // 所以不存在二次 destroy。
+            // A source this extension created must not outlive disable(). It holds a
+            // Gio.DBus.watch_name subscription and a NotificationPolicy, both released only in
+            // Source.destroy() (messageTray.js:597-609: policy.destroy() + run_dispose()); more
+            // importantly, once open() is restored to the native one, that method's second step
+            // destroyNonResidentNotifications() acts again on a multi-card source, so "click one
+            // card, wipe the group" comes back after disabling. If rec is still in the table
+            // here, this source was never destroyed (a destroy self-clears the record through
+            // rec.hid), so there is no double destroy.
             try {
                 rec.source.destroy();
             } catch {
@@ -130,8 +147,9 @@ export default class NotificationGrouperExtension extends Extension {
     }
 
     /**
-     * 还原两处补丁。可安全重复调用（已还原则是 no-op，且不会误报还原了 0 处）。
-     * _orig 只在真正挂上过补丁时被置位，因此它的存在就是"当前是包裹态"的唯一判据。
+     * Restore the two patches. Safe to call repeatedly (already-restored is a no-op and never
+     * reports "restored 0 patches"). _orig is set only when patches were really mounted, so its
+     * presence is the single judge of "currently wrapped".
      */
     _detachPatches() {
         const o = this._orig;
@@ -152,14 +170,17 @@ export default class NotificationGrouperExtension extends Extension {
         this._orig = null;
     }
 
-    // ---- 设置 ----
+    // ---- Settings ----
     //
-    // schema 随扩展目录走（schemas/ + metadata 的 settings-schema；shell 侧实现在
-    // extensions/sharedInternals.js:92，50 起不再自动编译 schema，所以 gschemas.compiled
-    // 必须与 .xml 同笔提交）。职责只有两条：读一次缓存进内存（热路径每条通知读缓存，
-    // 绝不做 IO），changed:: 时刷新。handler id 全部记进 _settingsHids，disable() 逐个
-    // disconnect —— 与补丁同一条规矩：登记了就必须有路径撤销它。
-    // 日志只在两个开关上各一行（那是用户动作，不是通知）；上限拖动会连发，故意不打。
+    // The schema ships with the extension directory (schemas/ + the metadata settings-schema;
+    // the shell-side implementation is extensions/sharedInternals.js:92, and since 50 GNOME no
+    // longer compiles schemas automatically, so gschemas.compiled must land in the same commit as
+    // the .xml). It has exactly two jobs: read once into memory (the hot path reads the cache per
+    // notification and never does IO) and refresh on changed::. Every handler id goes into
+    // _settingsHids and disable() disconnects each one — the same rule as patches: once
+    // registered, there must be a path that undoes it.
+    // Logging is one line per toggle (those are user actions, not notifications); dragging the
+    // cap fires repeatedly, so it is deliberately not logged.
 
     _loadSettings() {
         const s = this.getSettings();
@@ -177,7 +198,7 @@ export default class NotificationGrouperExtension extends Extension {
             }),
             s.connect('changed::max-per-source', () => {
                 this._maxPerSource = s.get_int('max-per-source');
-                // 没有"下一条"要塞，所以现存堆叠削到上限本身（不是 cap-1）
+                // There is no "next" notification to make room for, so trim the existing stack to the cap itself (not cap-1)
                 for (const [, rec] of this._shared)
                     this._evictTo(rec.source, this._maxPerSource);
             }),
@@ -204,16 +225,19 @@ export default class NotificationGrouperExtension extends Extension {
     }
 
     /**
-     * 把堆叠削到 keep 条，镜像原生 messageTray.js:577-579 的语义（销毁最旧、
-     * reason=EXPIRED）。调用时机只有两处，且都必须保证**削完还剩至少一条**：
-     *  1. NotifyAsync 里原生 push **之后**，keep = max-per-source（length 此时是
-     *     cap+1，于是可见条数正好是 cap）；
-     *  2. 设置项被调小时，对现存堆叠立刻修剪，keep = 新 cap。
-     * keep=0 是禁止的：原生见到底层空掉就 `this.destroy()`（messageTray.js:569-570），
-     * 那个源随后会被原生继续 push，直接踩到已 dispose 的对象。
-     * reason 必须是 EXPIRED：FDO 侧按它决定发给应用的是 NotificationClosed(EXPIRED)
-     * 还是 (DISMISSED)（notificationDaemon.js:178-195），传错等于替用户"手动关闭"了它。
-     * cap == NATIVE_MAX_PER_SOURCE 时循环条件与原生等价，不必特判。
+     * Trim a stack to `keep` entries, mirroring the semantics of native messageTray.js:577-579
+     * (destroy the oldest, reason=EXPIRED). There are only two call sites, and both must
+     * guarantee **at least one entry remains after trimming**:
+     *  1. In NotifyAsync, **after** the native push, keep = max-per-source (length is then cap+1,
+     *     so the visible count is exactly cap);
+     *  2. When the setting is lowered, immediately prune the existing stack, keep = the new cap.
+     * keep=0 is forbidden: native sees the underlying list empty and calls `this.destroy()`
+     * (messageTray.js:569-570), and that source is then pushed to again, stepping straight onto a
+     * disposed object.
+     * reason must be EXPIRED: the FDO side uses it to decide whether the app is sent
+     * NotificationClosed(EXPIRED) or (DISMISSED) (notificationDaemon.js:178-195), so passing the
+     * wrong one is like "manually closing" it on the user's behalf.
+     * When cap == NATIVE_MAX_PER_SOURCE the loop condition equals native, so no special case is needed.
      */
     _evictTo(source, keep) {
         while (source.notifications.length > keep) {
@@ -223,8 +247,9 @@ export default class NotificationGrouperExtension extends Extension {
     }
 
     /**
-     * 按开关挂/撤三处 UI 兜底。attach() 自己先 detach，所以来回拨不叠层（与 enable()
-     * 的幂等同一条不变量）。不 await：enable() 必须保持同步，与 _pending 交接假设一致。
+     * Mount/unmount the three UI workarounds according to the toggle. attach() detaches first, so
+     * flipping back and forth never stacks layers (the same invariant as enable()'s idempotence).
+     * Not awaited: enable() must stay synchronous, consistent with the _pending hand-off assumption.
      */
     _mountUiGuards() {
         if (!this._uiGuardsEnabled) {
@@ -235,7 +260,7 @@ export default class NotificationGrouperExtension extends Extension {
             ownsSource: src => this._ownSources.has(src),
             log: m => log(`${LOG_PREFIX} ${m}`),
             onError: (e, m) => logError(e, `${LOG_PREFIX} ${m}`),
-            // 动态导入期间可能已 disable，或用户已把兜底开关拨掉：那时挂上去就无人还原。
+            // We may have been disabled during the dynamic import, or the user may have flipped the workaround toggle off: mounting then would leave nobody to restore it.
             alive: () => this._enabled && this._uiGuardsEnabled,
         }).then(guards => {
             if (guards.length > 0)
@@ -245,7 +270,7 @@ export default class NotificationGrouperExtension extends Extension {
         });
     }
 
-    // ---- 挂接 FDO 实例 ----
+    // ---- Attach to the FDO instance ----
 
     _attach() {
         const daemon = Main.notificationDaemon || null;
@@ -266,9 +291,10 @@ export default class NotificationGrouperExtension extends Extension {
             return;
         }
 
-        // 防重入：enable 未经 disable（_orig 仍指向上一轮的包裹层）时，必须先
-        // 还原再重新取原始方法。否则会把包裹层当作原始方法存起来，disable 只能
-        // 还原到包裹层，永久残留一个引用死实例的包裹。
+        // Re-entry guard: when enable is called without a disable (_orig still points at the
+        // previous round's wrapper), we must restore first and only then re-capture the original
+        // methods. Otherwise the wrapper is stored as the "original", disable restores only as far
+        // as the wrapper, and a wrapper referencing a dead instance lingers forever.
         this._detachPatches();
 
         this._orig = {
@@ -280,9 +306,9 @@ export default class NotificationGrouperExtension extends Extension {
         const self = this;
 
         fdo.NotifyAsync = function (params, invocation) {
-            // FDO Notify 参数位：0 app_name, 1 replaces_id, 2 app_icon,
-            // 3 summary, 4 body, 5 actions, 6 hints, 7 timeout。
-            // 入口处 hints 内仍是 GLib.Variant，需 deepUnpack。
+            // FDO Notify argument slots: 0 app_name, 1 replaces_id, 2 app_icon,
+            // 3 summary, 4 body, 5 actions, 6 hints, 7 timeout.
+            // At the entry point the hints are still GLib.Variant, so they need deepUnpack.
             const hints = params[6] || {};
             const read = (k) => {
                 try {
@@ -298,12 +324,13 @@ export default class NotificationGrouperExtension extends Extension {
                 enabled: self._groupingEnabled,
                 isolated: self._isolated,
             });
-            // _pending 对所有调用都置位：Shell 认识 replaces_id 时走复用分支
-            // （不经过 _getSource，暂存无影响）；Shell 不认识（stale id）则落
-            // else 分支，_getSource 用暂存合并。暂存携带 pid 与原始 app_name
-            // 两个一致性校验位——pid 只能发现跨进程错位，发现不了同一进程内以
-            // 不同 app_name 交错发送（pid 相同、守卫放行），那才是会静默并进
-            // 错误分组的情形，所以两个都记。
+            // _pending is set for every call: when the Shell recognises replaces_id it takes the
+            // reuse branch (never reaching _getSource, so the stash has no effect); when it does
+            // not (stale id) it falls into the else branch and _getSource uses the stash to merge.
+            // The stash carries two consistency-check fields, pid and the raw app_name — pid alone
+            // can only catch cross-process misalignment, not one process interleaving sends under
+            // different app_names (same pid, guard lets it through), which is the case that would
+            // silently merge into the wrong group, so both are recorded.
             self._pending = {
                 res,
                 pid: read('x-shell-sender-pid'),
@@ -312,13 +339,14 @@ export default class NotificationGrouperExtension extends Extension {
             try {
                 return self._orig.notify.call(this, params, invocation);
             } finally {
-                // 削位必须在 push **之后**。原生在源的最后一条通知被销毁时会连带
-                // 销毁整个源（messageTray.js:569-570），若在 push 前把它清空，紧接着
-                // 的原生 addNotification 就在操作一个已 dispose 的对象——实测
-                // Gjs-CRITICAL "has been already disposed"，栈里我们的包装帧在下面
-                // 两帧（notificationDaemon.js:266 → :367 → messageTray.js:592）。
-                // NotifyAsync 是同步的，所以返回时通知已经进了源，这里削到 cap 条
-                // 既精确又绝不会把源清空（cap >= 1，length = cap + 1）。
+                // The trim must happen **after** the push. Native destroys the whole source when
+                // its last notification is destroyed (messageTray.js:569-570), so emptying it
+                // before the push would leave the following native addNotification operating on a
+                // disposed object — measured as a Gjs-CRITICAL "has been already disposed" with
+                // our wrapper frame two frames down the stack (notificationDaemon.js:266 → :367 →
+                // messageTray.js:592). NotifyAsync is synchronous, so on return the notification
+                // is already in the source; trimming to cap here is exact and never empties the
+                // source (cap >= 1, length = cap + 1).
                 const served = self._pending && self._pending.servedSource;
                 if (served)
                     self._evictTo(served, self._maxPerSource);
@@ -328,44 +356,50 @@ export default class NotificationGrouperExtension extends Extension {
 
         fdo._getSourceForPidAndName = function (sender, pid, appName) {
             const pend = self._pending;
-            // 无暂存或 app_name 为空：原生直通，按 pid 隔离。
+            // No stash, or an empty app_name: fall through to native, isolated by pid.
             if (!pend || !pend.res.mergeable)
                 return self._orig.getSource.call(this, sender, pid, appName);
-            // 防御：暂存 pid 与本次调用 pid 不一致 -> 同步假设被发行版补丁
-            // 破坏（NotifyAsync 引入 await/重入）。落安全侧：原生直通 + 单行告警。
+            // Defensive: the stashed pid differs from this call's pid -> the synchronous
+            // assumption was broken by a distro patch (NotifyAsync gained an await/re-entry).
+            // Fall to the safe side: native fall-through + a one-line warning.
             if (pend.pid != null && pid != null && pend.pid !== pid) {
                 self._warnOnce('pending-mismatch',
-                    `pending 错位: 暂存 pid=${pend.pid} vs 调用 pid=${pid}，按原生直通（同步假设失效，请上报）`);
+                    `pending mismatch: stashed pid=${pend.pid} vs call pid=${pid}, falling through to native (the synchronous assumption broke, please report)`);
                 return self._orig.getSource.call(this, sender, pid, appName);
             }
-            // 防御：暂存的 app_name 与本次调用的不一致 -> 暂存属于另一条通知
-            // （同一发送者进程交错）。此时 groupKey 是按别人的名字算的，必须
-            // 直通，否则会把这条通知并进别人的栈并连带改变栈标题。
+            // Defensive: the stashed app_name differs from this call's -> the stash belongs to
+            // another notification (the same sender process interleaved). The groupKey was then
+            // computed from someone else's name, so we must fall through, or this notification
+            // would be merged into another app's stack and change its title.
             if (pend.appName !== appName) {
                 self._warnOnce('pending-appname-mismatch',
-                    `pending 错位: 暂存 app_name=${JSON.stringify(pend.appName)} vs 调用 ` +
-                    `${JSON.stringify(appName)}，按原生直通（同步假设失效，请上报）`);
+                    `pending mismatch: stashed app_name=${JSON.stringify(pend.appName)} vs call ` +
+                    `${JSON.stringify(appName)}, falling through to native (the synchronous assumption broke, please report)`);
                 return self._orig.getSource.call(this, sender, pid, appName);
             }
             const key = pend.res.groupKey;
             const rec = self._shared.get(key);
             if (rec) {
-                // 复用已有源。这里**不能**削位：削到 cap-1 在 cap=1 时会把源清空，
-                // 而原生见到底层空掉就 self.destroy()（messageTray.js:569-570），
-                // 紧接着的 addNotification 会踩到已 dispose 的对象。只登记"这条被
-                // 我接管了"，削位交给 NotifyAsync 包裹层在 push 之后做。
+                // Reuse the existing source. Do **not** trim here: trimming to cap-1 with cap=1
+                // empties the source, and native sees the underlying list empty and calls
+                // self.destroy() (messageTray.js:569-570), so the following addNotification steps
+                // onto a disposed object. Only record "I took over this one"; the trim is left to
+                // the NotifyAsync wrapper, after the push.
                 pend.servedSource = rec.source;
                 return rec.source;
             }
             const source = self._orig.getSource.call(this, sender, pid, appName);
 
-            // 第三挂载点（与分组补丁相互独立、独立降级）：合并源没有 app（本路径
-            // 原生即传 null），原生 Source.open() = openApp()（对 null app 是
-            // no-op，也不关日历）+ destroyNonResidentNotifications()，后者把**整个
-            // 共享源**里的非驻留通知一起清掉。原生一个源≈一个 sender，清掉的通常
-            // 只有一张；合并把作用域放大成整组 —— 用户看到"点一张卡 -> 空白一片 ->
-            // 整组消失"。这里只保留"打开应用"那半句，去掉批量销毁；被点的那张仍由
-            // Notification.activate() 随后的 destroy() 自行销掉，于是点哪张只删哪张。
+            // Third mount point (independent of the grouping patches and degrading on its own): a
+            // merged source has no app (native passes null on this path), so native
+            // Source.open() = openApp() (a no-op for a null app, and it does not close the calendar
+            // either) + destroyNonResidentNotifications(), the latter wiping every non-resident
+            // notification in the **whole shared source**. A native source holds roughly one
+            // sender, so usually only one card is wiped; merging widens the scope to the whole
+            // group — the user sees "click one card -> blank area -> the whole group disappears".
+            // Here we keep only the "open the app" half and drop the mass destroy; the clicked card
+            // is still destroyed by Notification.activate()'s subsequent destroy(), so clicking any
+            // card deletes only that card.
             let origOpen = null;
             let patchedOpen = null;
             const rawOpen = source.open;
@@ -378,12 +412,12 @@ export default class NotificationGrouperExtension extends Extension {
                 source.open = patchedOpen;
             } else {
                 self._warnOnce('source-open-missing',
-                    'FdoNotificationDaemonSource.open 不可用，点一张卡仍会清空整组（请上报）');
+                    'FdoNotificationDaemonSource.open is unavailable, so clicking one card will still wipe the whole group (please report)');
             }
 
             self._ownSources.add(source);
-            // destroy 自清：仅当缓存里仍是本源时才删（防旧源的延迟 destroy
-            // 误删同 key 的新源）。
+            // Self-clearing on destroy: delete only if the cache still holds this source (so a
+            // delayed destroy of an old source cannot delete a new source with the same key).
             const hid = source.connect('destroy', () => {
                 const cur = self._shared.get(key);
                 if (cur && cur.source === source) {
@@ -392,7 +426,7 @@ export default class NotificationGrouperExtension extends Extension {
                 }
             });
             self._shared.set(key, { source, hid, origOpen, patchedOpen });
-            // 新建源同理：削位不在这里做，登记后交给 push 之后的那段。
+            // Same for a newly created source: the trim is not done here; after recording, it is left to the post-push block.
             pend.servedSource = source;
             return source;
         };
@@ -400,7 +434,7 @@ export default class NotificationGrouperExtension extends Extension {
         this._appliedPatches = check.patches;
         log(`${LOG_PREFIX} enabled, attached patches: ${this._appliedPatches.join(', ')}`);
 
-        // 分组已挂上才谈兜底（兜底独立降级，但不会在惰性实例上单独存在）。
+        // Only discuss the workarounds once grouping is mounted (they degrade independently but never exist alone on an inert instance).
         this._mountUiGuards();
     }
 
