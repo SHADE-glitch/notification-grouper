@@ -539,3 +539,30 @@ Evidence 2026-10-16: `npm test` 13/13 green — the guard's sweep now finds no a
          any record file. `npm run check:log` PASS.
 Cost     None — wording only; no fact, import or file changed.
 Commit   a3b8216
+
+### D-025 · 2026-10-18 · fix · v10
+Symptom  Locking the screen (Super+L, idle blank, lid/suspend) and unlocking again left the
+         notification list without every grouped stack, while native app stacks survived. It read
+         as a grouping bug: `metadata.json` declared no `session-modes`, so it defaulted to
+         `["user"]` (`extensionSystem.js:394`); GNOME disables any extension whose session modes
+         exclude the current one (`:48`, `:165-180`), and `unlock-dialog` has no `parentMode` to
+         fall back on (`sessionMode.js:21-101`). Entering the lock screen therefore ran
+         `disable()`, which destroys every merged source by design — and a source destroys itself
+         when its last notification goes (`messageTray.js:569-570`).
+Change   `metadata.json` now declares `session-modes: ["user", "unlock-dialog"]` and version 10.
+         The key replaces GNOME's default, so both modes are listed. The README pair gained one
+         sentence under the existing "Disabling tears down the merged stacks" limitation, and
+         `tests/repo.test.mjs` gained a guard asserting both modes are present (dropping `user`
+         would leave the extension running only on the lock screen; dropping `unlock-dialog`
+         reintroduces this bug). No code path changed.
+Evidence 2026-10-18: `npm run check` green; `npm test` 14/14 (13 before, +1 guard);
+         `npm run check:log` PASS. Journal proof of the mechanism: `2026-10-17 23:05:09 disabled,
+         restored patches: ...` followed by `2026-10-18 07:44:19 enabled` (the lock/unlock pair),
+         with an AT-SPI read of the list before/after showing the merged stacks gone and the
+         native app stacks intact. Runtime confirmation (lock/unlock with the new metadata) is
+         **pending a logout/login** — metadata is read at session start.
+Cost     The extension and its three prototype workarounds now stay mounted on the lock screen.
+         They touch no authentication surface and the workarounds only affect the message list,
+         so the exposure is the same code that already runs in the user session. The metadata
+         change needs a logout/login before it can be observed.
+Commit   431cfde
