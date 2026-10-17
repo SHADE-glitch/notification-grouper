@@ -172,6 +172,24 @@ describe("shipped code keeps the promises its comments make", () => {
                 `${HOME.daemon} patches a prototype (${method}) — the workaround unit leaked`);
     });
 
+    it("metadata.json keeps the extension enabled on the lock screen", () => {
+        // GNOME Shell disables any extension whose session-modes do not include the
+        // current mode (extensionSystem.js:48, :165-180; the key defaults to ["user"]
+        // at :394), and unlock-dialog has no parentMode to fall back on. disable()
+        // destroys every merged source by design, so without "unlock-dialog" every
+        // grouped notification dies the moment the screen locks — while native app
+        // stacks survive, which makes it look like a grouping bug. Measured
+        // 2026-10-17: "disabled, restored patches" at 23:05:09, "enabled" at 07:44:19,
+        // merged stacks gone and native stacks intact.
+        // The key replaces GNOME's default, so both modes must be listed: dropping
+        // "user" would leave the extension running only on the lock screen.
+        const modes = JSON.parse(read("metadata.json"))["session-modes"] ?? [];
+        assert.ok(modes.includes("user"),
+            `metadata.json session-modes is [${modes}] — without "user" the extension never runs in the normal session`);
+        assert.ok(modes.includes("unlock-dialog"),
+            `metadata.json session-modes is [${modes}] — without "unlock-dialog" GNOME disables the extension when the screen locks and every merged stack is destroyed`);
+    });
+
     it("no Gtk/Gdk import in the shell process (prefs.js is the only place allowed)", () => {
         // extension.js / uiWorkarounds.js run inside gnome-shell, which has no GTK
         // display; importing Gtk there is a crash at load, not a style issue.

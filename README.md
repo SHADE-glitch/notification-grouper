@@ -401,7 +401,10 @@ defects** switch turns them off at runtime if you want to compare against stock 
   `destroy()` releases, and leaving them alive with the native `open()` restored would
   re-create the bug this extension exists to fix. Nothing already sent to a *native* stack
   is affected. Turning **Group by app** off is the gentler option — it stops new
-  notifications from merging and keeps existing stacks.
+  notifications from merging and keeps existing stacks. The lock screen does not reach
+  this path: `metadata.json` declares `session-modes` `["user", "unlock-dialog"]`, so
+  GNOME keeps the extension active while locked. Without that key GNOME disables the
+  extension on lock, `disable()` runs, and every merged stack is retired.
 - **Cards that *disabling* retires reach the sender as `NotificationClosed` with reason 4
   (`undefined`)**, not "source closed". Native
   `FdoNotificationDaemonSource.destroy()` takes no argument and calls `super.destroy()`

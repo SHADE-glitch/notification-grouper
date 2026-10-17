@@ -330,7 +330,9 @@ GNOME 对比。
   退休。这是有意的：那种来源持有的 D-Bus 名字订阅与通知策略只有 `destroy()` 才释放，而且
   `open()` 还原成原生版之后再留着它，就等于把本扩展要修的那个 bug 放回"禁用之后"。原本
   就在**原生栈**里的通知完全不受影响。想要温和一点就关**按发出应用分组**：不再有新通知并
-  进来，已有的栈保持不动。
+  进来，已有的栈保持不动。锁屏不会走到这条路：`metadata.json` 声明了 `session-modes`
+  `["user", "unlock-dialog"]`，所以 GNOME 在锁屏期间保持扩展启用。没有这个键，GNOME 会在
+  锁屏时禁用扩展，`disable()` 随即运行，每个合并栈都被拆掉。
 - **因为"禁用"而退休的那些卡片，发给发送方的 `NotificationClosed` reason 是 4（`undefined`）**，
   不是"来源已关闭"。原生 `FdoNotificationDaemonSource.destroy()` 本身不接参数、`super.destroy()`
   也不带 reason（`notificationDaemon.js:384-391`），reason 在映射之前就被丢掉了；要改只能
