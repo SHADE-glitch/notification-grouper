@@ -566,3 +566,16 @@ Cost     The extension and its three prototype workarounds now stay mounted on t
          so the exposure is the same code that already runs in the user session. The metadata
          change needs a logout/login before it can be observed.
 Commit   431cfde
+
+### D-026 · 2026-10-19 · chore
+
+Symptom  Links to #-settings / #-known-limitations (and the Chinese equivalents) did not
+         resolve: the headings keep an emoji, whose variation selector stays in the generated id.
+         AGENTS.md also said CI runs "exactly two commands" while ci.yml has three steps, and
+         cited the standard by bare filename.
+Change   Both READMEs give the two headings explicit <a name> anchors and every link targets
+         them; the CI sentence names two gates plus the non-gating coverage read; standard
+         references carry the full path.
+Evidence 2026-10-19: no #-settings / #-已知限制 link remains; npm test 14 pass.
+Cost     Two anchor lines per README; links no longer depend on the emoji slug.
+Commit   5a34ed4
