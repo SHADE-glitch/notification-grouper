@@ -65,13 +65,13 @@ Read this before opening an issue — several of these are deliberate.
 - **No rules engine.** Per-app branches, rule files and title patterns were all removed
   from the grouping logic; the engine contains no application name at all. Grouping is a
   pure function of the identity the sender declares. What remains configurable is four
-  switches ([Settings](#-settings)), none of which re-introduces matching: the only list
+  switches ([Settings](#settings)), none of which re-introduces matching: the only list
   you can fill is a set of application names to leave alone.
 - **The stack size cap can only be lowered, never raised.** GNOME keeps at most
   10 notifications per source (`messageTray.js:25`, oldest destroyed synchronously at
   `:577-580`). `max-per-source` lets you set 1..10; raising it past 10 would mean
   re-implementing native `addNotification`, i.e. a fourth fragile patch point, so it is
-  deliberately not offered. See [Known limitations](#-known-limitations) for what merging
+  deliberately not offered. See [Known limitations](#known-limitations) for what merging
   does to that cap.
 - **No UI changes of its own.** Icons, titles, banners and urgency are all left to GNOME.
   The extension injects no buttons and overrides no headers. The only click-behaviour
@@ -114,7 +114,7 @@ card", again only for collapsed groups whose source it created.
 
 Both are strictly scoped to stacks this extension creates; native sources and expanded
 groups keep native behaviour. See [Click behaviour to expect](#click-behaviour-to-expect-native-not-configurable)
-and [Known limitations](#-known-limitations).
+and [Known limitations](#known-limitations).
 
 The stash is a single slot, which is safe because the shell-side `NotifyAsync`
 is a plain synchronous method — there is no `await` between reading the hints
@@ -131,7 +131,7 @@ notification policy that are only released by `Source.destroy()`
 (`messageTray.js:597-609`), and once `open()` has been restored to the native one, leaving
 the source alive would put "click one card, lose the whole group" back on the table —
 after disabling. Disabling therefore withdraws everything the extension did; see
-[Known limitations](#-known-limitations).
+[Known limitations](#known-limitations).
 
 ### Group key
 
@@ -145,6 +145,8 @@ Normalisation is: trim, lowercase, strip a trailing `.desktop`. So `Foo`,
 ` foo.desktop ` and `FOO` all land in the same group.
 
 The hot path is a pure function with no regex, no file IO and no timers.
+
+<a name="settings"></a>
 
 ## ⚙️ Settings
 
@@ -240,7 +242,7 @@ You can also enable it from the **Extensions** app.
 extension. Toggling it off and on does **not** reload edited JavaScript: the
 shell caches ES modules per process, so verifying a code change needs a shell
 restart. (Settings are different — they apply live, see
-[Settings](#-settings).)
+[Settings](#settings).)
 
 The compiled schema (`schemas/gschemas.compiled`) is committed, so there is
 nothing to generate after cloning; GNOME 50 no longer compiles schemas shipped
@@ -376,6 +378,8 @@ defects** switch turns them off at runtime if you want to compare against stock 
   (`notificationDaemon.js:232-241`) — no extension can retrofit it.
 - **Clicking one card's close button now closes just that card**, in a collapsed merged
   group too (native would have closed the whole group there).
+
+<a name="known-limitations"></a>
 
 ## ⚠️ Known limitations
 

@@ -217,8 +217,9 @@ facts are the thing that drifts.
   paths **and of real application names** — the pid and hint structure are the evidence.
 
 ## CI
-- CI runs exactly two commands and both must stay green: **`npm test`** (L0: engine plus
-  repository guards — no shell, no dependencies) and **`npm run check:log`**.
+- CI runs two gate commands, both of which must stay green: **`npm test`** (L0: engine plus
+  repository guards — no shell, no dependencies) and **`npm run check:log`**. A third step,
+  **`npm run test:coverage`**, only prints a coverage reading and cannot fail the run.
   `.github/workflows/ci.yml` runs them on `ubuntu-latest`, Node 20, on every push and PR.
   The L1 harnesses need a Wayland-capable session and are **not** in CI; that is a decision,
   not an oversight.
@@ -280,7 +281,7 @@ facts are the thing that drifts.
 
 ## Recording conventions
 
-Common CHANGELOG rules: `STANDARD.md` §3.
+Common CHANGELOG rules: `~/.agents/standards/STANDARD.md` §3.
 
 - Behaviour changes land in `CHANGELOG.md` as `D-###` entries; `check:log` treats a gap in the
   numbering as a failure rather than a cleanup.
@@ -303,7 +304,7 @@ Common CHANGELOG rules: `STANDARD.md` §3.
 
 ## Listed on the GitHub profile
 
-See `STANDARD.md` §8 for the shared profile-listing triggers. This repo's own additions:
+See `~/.agents/standards/STANDARD.md` §8 for the shared profile-listing triggers. This repo's own additions:
 
 - **Purpose drift / origin** — the profile's one-line description and its "original extension"
   wording must still be true.
