@@ -183,6 +183,11 @@ export default class NotificationGrouperExtension extends Extension {
     // cap fires repeatedly, so it is deliberately not logged.
 
     _loadSettings() {
+        // Drop the previous round's handlers first. Assigning the array below is the only
+        // place they are recorded, so a second enable() without a disable() would overwrite
+        // it and leave four changed:: connections that nothing can disconnect and that keep
+        // this instance reachable. _teardownSettings() is a no-op on a fresh instance.
+        this._teardownSettings();
         const s = this.getSettings();
         this._settings = s;
         this._readSettings();
