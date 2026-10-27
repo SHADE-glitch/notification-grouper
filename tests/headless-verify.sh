@@ -413,14 +413,14 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         const settingsRef = inst._settings;
         const hids = [...inst._settingsHids];
         inst.disable();
-        // The two `say` calls that used to sit here reported settingsHandlersDetached /
-        // settingsDropped, the same keys as the pair below; the collector is `out[k] = v`,
-        // so they were overwritten before anything read them. The claims they made are
-        // covered by settingsHandlerCount and by the post-second-disable pair.
+        // Only one pair is reported. The collector assigns out[k] = v, so a second
+        // say() under the same key would drop the first without a word -- which is what
+        // used to happen here. This pair runs after the second disable(), so it also
+        // covers the first round's handlers; settingsHandlerCount already pins arming.
         inst.disable();
         say('settingsHandlersDetached', hids.length > 0 &&
             hids.every(id => GObject.signal_handler_is_connected(settingsRef, id) === false));
-        say('settingsDroppedOnDisable',
+        say('settingsDropped',
             inst._settings === null && inst._settingsHids.length === 0);
         // Fourth RSS point: after everything is torn down. Report-only, like the others —
         // it answers "did the extension's own footprint come back down", which no
