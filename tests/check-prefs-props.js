@@ -27,7 +27,9 @@ const USED = [
     { cls: 'Adw.SwitchRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.SwitchRow', kind: 'prop', name: 'subtitle' },
     { cls: 'Adw.SwitchRow', kind: 'prop', name: 'active' },
-    // Number: SpinRow has only properties and no value-changed signal, so it goes through settings.bind('value')
+    // Number: SpinRow has only properties and no value-changed signal; prefs.js wires both
+    // directions by hand rather than settings.bind(), because int/double type mismatch makes
+    // bind() a silent no-op.
     { cls: 'Adw.SpinRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.SpinRow', kind: 'prop', name: 'subtitle' },
     { cls: 'Adw.SpinRow', kind: 'prop', name: 'adjustment' },
@@ -37,10 +39,11 @@ const USED = [
     { cls: 'Gtk.Adjustment', kind: 'prop', name: 'step_increment' },
     { cls: 'Gtk.Adjustment', kind: 'prop', name: 'page_increment' },
     { cls: 'Gtk.Adjustment', kind: 'prop', name: 'value' },
-    // Exception list
+    // Exception list. enable_expansion was dropped from prefs.js: collapsing the row while the
+    // list was empty hid the entry that adds the first name (see CHANGELOG D-087), so the row
+    // now always expands and the property is no longer set.
     { cls: 'Adw.ExpanderRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.ExpanderRow', kind: 'prop', name: 'subtitle' },
-    { cls: 'Adw.ExpanderRow', kind: 'prop', name: 'enable_expansion' },
     // EntryRow: has title/text, **no subtitle** (the D-001 trap) and no placeholder-text
     { cls: 'Adw.EntryRow', kind: 'prop', name: 'title' },
     { cls: 'Adw.EntryRow', kind: 'prop', name: 'text' },

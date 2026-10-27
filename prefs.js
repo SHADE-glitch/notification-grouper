@@ -7,8 +7,8 @@
 //   has subtitle — ActionRow / SwitchRow / SpinRow / ExpanderRow
 //   no subtitle — **EntryRow** (the whole prefs surface was once deleted because it set a subtitle
 //   on it, see CHANGELOG D-001)
-//   Adw.SpinRow has no value-changed signal, only properties; so the number goes through
-//   settings.bind() on 'value' (the existing approach in this workspace's macos-dock, in daily use here)
+//   Adw.SpinRow has no value-changed signal, only properties. It is NOT bound: the key is an
+//   int and the property is a double, and bind() then fails silently (see #addMaxPerSource)
 //   Adw.EntryRow has no placeholder-text; use its title for the hint text
 //   Adw.EntryRow's activate signal is named entry-activated (signal_lookup hits it, measured)
 // The prefs object is built and destroyed with the dialog, so the changed:: handlers here carry no
@@ -116,9 +116,11 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
         });
         page.add(group);
 
+        // Always expandable. Collapsing an empty list was cosmetic, and it locked the page:
+        // the entry and the Add button live inside this row, so an empty list closed the only
+        // way to add the first name and the list could then only be edited through dconf.
         const expander = new Adw.ExpanderRow({
             title: 'Exceptions',
-            enable_expansion: false,
         });
         group.add(expander);
         this.#expander = expander;
@@ -184,7 +186,6 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
         this.#expander.subtitle = names.length === 0
             ? 'None — every app gets its merged stack'
             : `Not merged: ${names.join(', ')}`;
-        this.#expander.enable_expansion = names.length > 0;
     }
 
     #addReset(page, settings) {
