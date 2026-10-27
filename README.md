@@ -120,9 +120,12 @@ The stash is a single slot, which is safe because the shell-side `NotifyAsync`
 is a plain synchronous method — there is no `await` between reading the hints
 and resolving the source, and D-Bus dispatch on that connection is not
 reentrant. As a guard against that assumption being broken by a downstream
-patch, the stash also carries the sender pid; if the pid seen by the two calls
-ever disagrees, the notification falls through to native untouched and a single
-warning is logged.
+patch, the stash also carries two consistency fields — the sender pid and the raw
+`app_name` — and either one disagreeing with the second call drops the
+notification back to native untouched with a single warning. The pid alone only
+catches cross-process misalignment; the name catches one process interleaving
+sends under different names, which is the case that would merge into the wrong
+stack.
 
 `disable()` restores both methods, every overridden source `open()`, disconnects the
 per-source and settings handlers, clears the cache, and **destroys the merged sources it

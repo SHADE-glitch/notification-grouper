@@ -2,7 +2,7 @@
 
 # MAINTENANCE — notification-grouper@local maintenance manual
 
-**Reading order**: `reports/STATE.md` (if present, this round's continuation point; the directory is gitignored) → `AGENTS.md` (rules)
+**Reading order**: `docs/reports/STATE.md` (if present, this round's continuation point; the directory is gitignored) → `AGENTS.md` (rules)
 → this file (facts and manual) → `CHANGELOG.md` (decision history).
 
 This file holds only **reviewable facts and fixed procedures**; no rules (rules live in
@@ -11,8 +11,9 @@ This file holds only **reviewable facts and fixed procedures**; no rules (rules 
 verification date; line numbers drift across versions, so references always give a **range**
 rather than a single line.
 
-- Code size: `extension.js` 395 / `groupEngine.js` 159 / `uiWorkarounds.js` 206 /
-  `prefs.js` 206 lines (shipped code totals 966 lines; the rest is tests and docs).
+- Code size is deliberately not recorded here: it drifts on every edit, and a hand-copied
+  total is exactly the aggregate this house forbids. `wc -l extension.js groupEngine.js
+  uiWorkarounds.js prefs.js` is the authoritative reading; tests and docs make up the rest.
 - Native JS is not on disk under `/usr/share/gnome-shell`; it lives in the gresource of
   `/usr/lib/gnome-shell/libshell-18.so`; the subcommand is `extract`, not `show`.
 
@@ -202,7 +203,7 @@ steps:
    still exits 0. **Don't use `gnome-extensions install <zip>` as a verification instrument**:
    measured on this machine, it reports that line for any zip (including a flat two-file
    package), exits 0, and installs nothing.
-7. Write each step's result into `reports/STATE.md`; conclusive behavior changes go into
+7. Write each step's result into `docs/reports/STATE.md`; conclusive behavior changes go into
    `CHANGELOG.md` (`D-###`).
 
 ## Fixed measurement methods for power draw and leaks
@@ -230,7 +231,7 @@ sampled if the settings phase throws early, and prints as `(not sampled)`). It *
 in no assertion and does not affect the exit code**, because in the same process the noise
 from fonts, icons, and GPU caches is far larger than the extension itself; treating it as a
 red criterion is measuring noise. This round's measured values are recorded in
-`reports/VERIFY.md`.
+`docs/reports/VERIFY.md`.
 
 **Only L2 can talk about "power saving"**: the only comparison in a real session is "on vs
 off", running a session for each, watching `journalctl` for anomalies and the notification

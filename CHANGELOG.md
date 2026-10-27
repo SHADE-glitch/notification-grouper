@@ -567,7 +567,7 @@ Cost     The extension and its three prototype workarounds now stay mounted on t
          change needs a logout/login before it can be observed.
 Commit   431cfde
 
-### D-026 · 2026-10-19 · chore
+### D-026 · 2026-10-19 · chore · v10
 
 Symptom  Links to #-settings / #-known-limitations (and the Chinese equivalents) did not
          resolve: the headings keep an emoji, whose variation selector stays in the generated id.
@@ -579,3 +579,31 @@ Change   Both READMEs give the two headings explicit <a name> anchors and every 
 Evidence 2026-10-19: no #-settings / #-已知限制 link remains; npm test 14 pass.
 Cost     Two anchor lines per README; links no longer depend on the emoji slug.
 Commit   5a34ed4
+
+### D-027 · 2026-10-27 · fix · v10
+
+Symptom  With an empty exceptions list the settings page could not be edited: the row holding the
+         name entry and the Add button was made non-expandable whenever the list was empty, so the
+         only way to add the first name was dconf. The list could then only grow by hand.
+Change   The row always expands. The title still carries the count and the subtitle still names the
+         apps that are kept separate, so nothing became less informative; `check-prefs-props.js`
+         drops `enable_expansion` from its checklist in the same commit, since that list asserts
+         every member it names is still used.
+Evidence 2026-10-27: `npm run check` PASS, `npm test` 14/14, `npm run check:prefs` PASS
+         (29 used + 3 forbidden members).
+Cost     An empty list now shows its subtitle in an expandable row; expanding it shows the entry.
+         No behaviour change to grouping.
+Commit   496dd64
+
+### D-028 · 2026-10-27 · fix · v10
+
+Symptom  A second `enable()` without a `disable()` orphaned the first round's four `changed::`
+         handlers: `_loadSettings()` overwrites `_settingsHids`, the only record of their ids, so
+         nothing could disconnect them and their closures kept the old instance reachable.
+Change   `_loadSettings()` calls `_teardownSettings()` first. On a fresh instance that is a no-op
+         (no settings object, empty array), so the normal path is unchanged.
+Evidence 2026-10-27: `npm run check` PASS, `npm test` 14/14. The leak itself needs a double enable
+         against a live shell, which the harnesses do not drive.
+Cost     One extra function call per enable; on re-enable the old handlers are disconnected before
+         the new ones are made, which is what the invariant already required.
+Commit   23be142

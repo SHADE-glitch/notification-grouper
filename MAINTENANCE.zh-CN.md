@@ -2,15 +2,15 @@
 
 # MAINTENANCE — notification-grouper@local 维护手册
 
-**读取顺序**：`reports/STATE.md`（若存在，是本轮接续点，目录已 gitignore）→ `AGENTS.md`（规则）
+**读取顺序**：`docs/reports/STATE.md`（若存在，是本轮接续点，目录已 gitignore）→ `AGENTS.md`（规则）
 → 本文件（事实与手册）→ `CHANGELOG.md`（决定史）。
 
 本文件只放**可复核的事实与固定流程**，不放规则（规则在 `AGENTS.md`），不放决定（在
 `CHANGELOG.md`）。所有原生行号都是本机 GNOME Shell 50.1 上 `gresource extract` 出来的，
 下面每一节都标注了核对日期；行号会随版本漂移，所以引用一律给**区间**而不是单行。
 
-- 代码规模：`extension.js` 395 / `groupEngine.js` 159 / `uiWorkarounds.js` 206 /
-  `prefs.js` 206 行（出厂代码合计 966 行；其余是测试与文档）。
+- 代码规模不记在这里：每次改动都会漂移，手抄的合计正是本规范禁止的那种聚合数。
+  `wc -l extension.js groupEngine.js uiWorkarounds.js prefs.js` 是唯一权威读数；其余是测试与文档。
 - 原生 JS 不落盘在 `/usr/share/gnome-shell`，在 `/usr/lib/gnome-shell/libshell-18.so` 的
   gresource 里；子命令是 `extract`，不是 `show`。
 
@@ -162,7 +162,7 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
    `--schema=schemas` 报 "Can't recursively copy directory" 后仍然 exit 0。
    **别用 `gnome-extensions install <zip>` 当验证仪器**：本机实测它对任何 zip（含两文件的平包）
    都报那句、exit 0、且什么都没装。
-7. 每一步的结果写进 `reports/STATE.md`；结论性的行为变化进 `CHANGELOG.md`（`D-###`）。
+7. 每一步的结果写进 `docs/reports/STATE.md`；结论性的行为变化进 `CHANGELOG.md`（`D-###`）。
 
 ## 功耗与泄漏的固定度量方法
 
@@ -183,7 +183,7 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 第 2 页，打四个点——baseline → 通知爆发后 → 二次 enable 后 → 全部 disable 后——并原样打印
 （第四个点在设置阶段提前抛异常时不会被采样，打印为 `(not sampled)`）。它**不参与任何断言、
 不影响退出码**，因为同进程里字体、图标、GPU 缓存的噪声远大于扩展本体；把它当红色判据就是在
-测量噪声。本轮实测值记在 `reports/VERIFY.md`。
+测量噪声。本轮实测值记在 `docs/reports/VERIFY.md`。
 
 **L2 才谈得上“省电”**：真实会话里的比较只能是“开着 vs 关着”两段各跑一段会话，看
 `journalctl` 有无异常、通知列表有无卡顿；不要拿 headless 的数字冒充这个结论。
