@@ -413,10 +413,10 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         const settingsRef = inst._settings;
         const hids = [...inst._settingsHids];
         inst.disable();
-        say('settingsHandlersDetached', hids.length === 4 &&
-            hids.every(id => GObject.signal_handler_is_connected(settingsRef, id) === false));
-        say('settingsDropped',
-            inst._settings === null && inst._settingsHids.length === 0);
+        // The two `say` calls that used to sit here reported settingsHandlersDetached /
+        // settingsDropped, the same keys as the pair below; the collector is `out[k] = v`,
+        // so they were overwritten before anything read them. The claims they made are
+        // covered by settingsHandlerCount and by the post-second-disable pair.
         inst.disable();
         say('settingsHandlersDetached', hids.length > 0 &&
             hids.every(id => GObject.signal_handler_is_connected(settingsRef, id) === false));

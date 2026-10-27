@@ -10,7 +10,7 @@
 # that reads PASS whether or not the implementation took effect has no reason to exist — this script
 # exists to expose exactly that. It never touches the working tree.
 #
-#   usage: tests/provoke-settings.sh          (5 headless rounds, about 4 minutes)
+#   usage: tests/provoke-settings.sh          (8 headless rounds, one per entry in CASES)
 #   exit:  0 every mutation produced the expected red; 1 a mutation did not go red, or a literal is stale
 #
 # Fields are separated by TAB, not a pipe: both assertion names and replacement strings may contain a pipe.

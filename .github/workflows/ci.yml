@@ -24,6 +24,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
+      - run: npm run check
       - run: npm test
       - run: npm run check:log
       # Coverage reading (not a gate): Node's built-in coverage over the two

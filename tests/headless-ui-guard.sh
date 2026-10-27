@@ -6,11 +6,14 @@
 # required "flip" was a human two-run diff and could never gate anything).
 #
 #   EXPECT=guarded  (default) — the working tree: the guard must absorb the fault
-#   EXPECT=native             — a pre-fix build (git archive HEAD | tar -x): the fault
-#                               must reach the caller and corrupt the group state
+#   EXPECT=native             — a pre-fix build: the fault must reach the caller and corrupt
+#                               the group state. NOT HEAD: archiving HEAD hands you the guarded
+#                               tree, and every EXPECT=native assertion then fails for the wrong
+#                               reason. 528b234 is the commit that added the guard, so its parent
+#                               is the last tree without it.
 #
 # Run it once with each value and the FLIP is machine-checked:
-#   git archive HEAD | tar -x -C /tmp/ng-pre && EXPECT=native tests/headless-ui-guard.sh /tmp/ng-pre pre
+#   git archive 528b234^ | tar -x -C /tmp/ng-pre && EXPECT=native tests/headless-ui-guard.sh /tmp/ng-pre pre
 #   EXPECT=guarded          tests/headless-ui-guard.sh
 #
 # Provokes the native messageList collapse fault on BOTH builds, so the guard is
@@ -203,6 +206,12 @@ if expect == 'guarded':
         ('group state landed (expanded=false)', c.get('expandedAfter') is False,
          'got %r — half-collapsed is the state that swallows every later click' % c.get('expandedAfter')),
         ('cover re-shown',                 c.get('coverShown') is True, 'got %r' % c.get('coverShown')),
+        ('the doctored card was unexpanded too', c.get('brokenMessageExpanded') is False,
+         'got %r -- the loop stopped at the doctored entry' % c.get('brokenMessageExpanded')),
+        ('every healthy card was unexpanded',
+         c.get('healthyExpandedAfter') is not None and
+         all(v is False for v in c.get('healthyExpandedAfter')),
+         'got %r' % (c.get('healthyExpandedAfter'),)),
         ('closing one card closed one card',
          c.get('notifsBeforeClose') is not None and
          c.get('notifsAfterClose') == c.get('notifsBeforeClose') - 1,
@@ -215,6 +224,8 @@ else:
         ('group left corrupted (expanded=true)', c.get('expandedAfter') is True,
          'got %r' % c.get('expandedAfter')),
         ('cover never shown',                c.get('coverShown') is False, 'got %r' % c.get('coverShown')),
+        ('the loop died at the doctored card', c.get('brokenMessageExpanded') is True,
+         'got %r -- the fault was absorbed, so this tree is not the pre-fix one' % c.get('brokenMessageExpanded')),
         ('native close wiped the whole group',
          c.get('notifsAfterClose') == 0,
          'before %r after %r' % (c.get('notifsBeforeClose'), c.get('notifsAfterClose'))),

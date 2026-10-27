@@ -133,10 +133,6 @@ cat <<'TXT'
   3. Freeze regression: expand/collapse one merged group ~20 times, letting a few expire naturally along the way.
      Expected: the list always responds; no `TypeError … expansion` and no messageList JS ERROR in the journal.
 
-  0. Why these must be seen by your eyes: a real session has org.gnome.Shell.Eval off (needs unsafe-mode), so the
-     agent cannot count sources live and can only verify up to "did the settings chain notify the shell" (the journal
-     has grouping off/on lines); "merge into one stack / trim / the exception list not merging" needs the tray.
-
   4. The prefs page (gnome-extensions prefs notification-grouper@local) — the L0.5 introspection gate can only prove
      the members exist; rendering and interaction can only be seen here:
      - two switch rows, one 1..10 number row, one expandable exception-name list row all **render**
@@ -155,6 +151,10 @@ cat <<'TXT'
   6. Idle cost: after logging in, leave it for 30 minutes, comparing
      `ps -o rss=,etime=,pcpu= -C gnome-shell` in the on and off states. This is a **trend**, not a verdict;
      the headless RSS number cannot measure real power draw (MAINTENANCE § Fixed measurement methods for power draw and leaks).
+
+  7. Why these must be seen by your eyes: a real session has org.gnome.Shell.Eval off (needs unsafe-mode), so the
+     agent cannot count sources live and can only verify up to "did the settings chain notify the shell" (the journal
+     has grouping off/on lines); "merge into one stack / trim / the exception list not merging" needs the tray.
 
 TXT
 
