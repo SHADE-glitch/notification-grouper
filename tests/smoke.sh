@@ -64,7 +64,7 @@ fi
 if command -v dconf >/dev/null 2>&1; then
     DUMP=$(dconf dump /org/gnome/shell/extensions/notification-grouper/ 2>/dev/null)
     if [ -z "$DUMP" ]; then
-        ok "the path is empty in dconf = all four keys are default (10 / on / on / empty list)"
+        ok "the path is empty in dconf = all five keys are default (10 / on / on / empty list / fall-through log off)"
     else
         echo "$DUMP" | sed 's/^/        /'
         bad "these values were written into the **real dconf** (non-default). If you did not set them, reset:"
@@ -135,11 +135,14 @@ cat <<'TXT'
 
   4. The prefs page (gnome-extensions prefs notification-grouper@local) — the L0.5 introspection gate can only prove
      the members exist; rendering and interaction can only be seen here:
-     - two switch rows, one 1..10 number row, one expandable exception-name list row all **render**
+     - three switch rows, one 1..30 number row, one expandable exception-name list row all **render**
      - toggling a switch needs no re-enabling of the extension: send a notification immediately and the grouping on/off difference shows
      - put a really-existing sender name in the exception list and it should leave the merged group (note case/.desktop insensitivity)
-     - "Restore every default" resets the four keys at once
+     - "Restore every default" resets the five keys at once
      - set cards kept per stack to **1**: the merged stack should keep only the newest card and the journal must show no already disposed
+       (this is the defect point fixed this round; before v9 it stepped onto a destroyed source)
+     - set it to **30** and send 13 from one name: all 13 must stay in one stack (GNOME alone would keep 10); back to **10** and the
+       stack must shrink at once, with nothing left mounted
        (this is the defect point fixed this round; before v9 it stepped onto a destroyed source)
      - look once under a dark and a light theme; your own controls must not mix into the native style
 

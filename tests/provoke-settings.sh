@@ -10,7 +10,7 @@
 # that reads PASS whether or not the implementation took effect has no reason to exist — this script
 # exists to expose exactly that. It never touches the working tree.
 #
-#   usage: tests/provoke-settings.sh          (8 headless rounds, one per entry in CASES)
+#   usage: tests/provoke-settings.sh          (12 headless rounds, one per entry in CASES)
 #   exit:  0 every mutation produced the expected red; 1 a mutation did not go red, or a literal is stale
 #
 # Fields are separated by TAB, not a pipe: both assertion names and replacement strings may contain a pipe.
@@ -47,6 +47,10 @@ CASES=(
 "settings-not-disconnected	        for (const id of this._settingsHids)	        for (const id of [])	disable disconnects settings"
 "post-push-trim-removed	                const served = self._pending && self._pending.servedSource;	                const served = null;	max-per-source=3 trims to 3"
 "evict-reason-dismissed	            oldest.destroy(NotificationDestroyedReason.EXPIRED);	            oldest.destroy(NotificationDestroyedReason.DISMISSED);	FDO sees EXPIRED for evicted cards"
+"fallthrough-log-ignored	                this._logFallthrough = s.get_boolean('log-fallthrough');	                this._logFallthrough = false;	log-fallthrough writes one line per skipped merge"
+"last-card-close-removed	if (this.notifications.length <= 1)	if (false)	open() on the last card closes the page"
+"cap-above-native-ignored	const aboveNative = this.notifications.length - NATIVE_MAX_PER_SOURCE + 1;	const aboveNative = 0;	cap=30 keeps every card native would drop"
+"adoption-skipped	        this._adoptExistingSources();	/* provocation: nothing adopted */;	a pre-enable stack is adopted, not duplicated"
 )
 
 for entry in "${CASES[@]}"; do

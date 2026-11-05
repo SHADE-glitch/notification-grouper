@@ -6,30 +6,67 @@
 # required "flip" was a human two-run diff and could never gate anything).
 #
 #   EXPECT=guarded  (default) — the working tree: the guard must absorb the fault
-#   EXPECT=native             — a pre-fix build: the fault must reach the caller and corrupt
-#                               the group state. NOT HEAD: archiving HEAD hands you the guarded
-#                               tree, and every EXPECT=native assertion then fails for the wrong
-#                               reason. 528b234 is the commit that added the guard, so its parent
-#                               is the last tree without it.
+#   EXPECT=native             — a guard-free build: the fault must reach the caller and corrupt
+#                               the group state.
+#
+# The native control is SYNTHESIZED, not checked out. It used to point at 528b234^ ("the last
+# tree without the guard"), but that tree predates the settings schema (96ce1a0), so this
+# script's own "metadata.json has no settings-schema" guard refused to start it: the control
+# case had been unrunnable for every tree that actually shipped the settings layer, and the
+# two-mode flip AGENTS claims was never executed. EXPECT=native with no <extension-dir> now
+# copies the current tree and neutralizes uiWorkarounds.attach() in the copy; passing a
+# directory explicitly still overrides it.
 #
 # Run it once with each value and the FLIP is machine-checked:
-#   git archive 528b234^ | tar -x -C /tmp/ng-pre && EXPECT=native tests/headless-ui-guard.sh /tmp/ng-pre pre
-#   EXPECT=guarded          tests/headless-ui-guard.sh
+#   EXPECT=native   tests/headless-ui-guard.sh
+#   EXPECT=guarded  tests/headless-ui-guard.sh
 #
 # Provokes the native messageList collapse fault on BOTH builds, so the guard is
-# shown to matter rather than merely to not crash:
+# shown to matter rather than merely to not crash. TWO provocations, one per half of
+# the guard: a doctored layout manager (absorbed by workaround 1, so collapse() never
+# throws) and a throwing own-property unexpand (reaches workaround 2's catch, where the
+# full post-loop state has to land — header hidden, stacked fade rewritten):
 #   native (pre-fix):  JS ERROR logged, group stays _expanded=true (state corrupts),
-#                      messages after the broken one never get unexpanded
-#   patched:           no JS ERROR, _expanded=false, cover shown, forEach completes
+#                      messages after the broken one never get unexpanded,
+#                      fade never runs and _headerBox stays visible
+#   patched:           no JS ERROR, _expanded=false, cover shown, forEach completes,
+#                      fade ran and _headerBox hidden
 set -u
 EXT=${1:-$(CDIR=$(cd "$(dirname "$0")/.." && pwd) && echo "$CDIR")}
 LABEL=${2:-guard}
 V=${TMPDIR:-/tmp}/ng-verify
+EXPECT=${EXPECT:-guarded}
+case "$EXPECT" in guarded|native) ;; *) echo "EXPECT must be 'guarded' or 'native', got '$EXPECT'" >&2; exit 2 ;; esac
+# The control tree: same tree, attach() neutralized so no guard is mounted. The assert
+# below is the instrument check — if the signature drifts, the control silently becomes
+# a second guarded run, which is exactly the "green but blind" failure this file exists.
+if [ "$EXPECT" = native ] && [ $# -lt 1 ]; then
+    PRE="$V/native-control"
+    rm -rf "$PRE"
+    mkdir -p "$V"
+    cp -a "$EXT" "$PRE"
+    rm -rf "$PRE/.git"
+    python3 - "$PRE/uiWorkarounds.js" <<'PYCONTROL'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+anchor = 'export async function attach({ ownsSource, log, onError, alive }) {'
+if anchor not in s:
+    sys.exit('native control cannot be synthesized: attach() signature moved')
+# Rename rather than early-return: a `return []` at the top of the real body makes GJS
+# log "unreachable code after return statement" into the very extension log this harness
+# prints, which reads like a defect in the thing under test.
+s = s.replace(anchor, 'export async function attach() {\n'
+    '    return [];  // harness control: no guard is mounted\n'
+    '}\n'
+    'async function _control_unused({ ownsSource, log, onError, alive }) {', 1)
+open(p, 'w', encoding='utf-8').write(s)
+PYCONTROL
+    EXT="$PRE"
+fi
 # The metadata stub must carry settings-schema, or getSettings() inside enable() throws.
 SCHEMA=$(sed -n 's/.*"settings-schema"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$EXT/metadata.json")
 [ -n "$SCHEMA" ] || { echo "metadata.json has no settings-schema" >&2; exit 1; }
-EXPECT=${EXPECT:-guarded}
-case "$EXPECT" in guarded|native) ;; *) echo "EXPECT must be 'guarded' or 'native', got '$EXPECT'" >&2; exit 2 ;; esac
 UUID=notification-grouper@local
 STAGED="$V/xdgu-$LABEL/gnome-shell/extensions/$UUID"
 WD=wayland-u$LABEL
@@ -96,6 +133,13 @@ cat > "$V/probe-u-$LABEL.js" <<JSPROBE
         say('mapSize', msgs.length);
         const broken = msgs[0];
         const healthy = msgs.slice(1);
+        // Put every card in the expanded state BEFORE doctoring. collapse() only lands
+        // expanded=false for the cards its loop reaches, so an all-false reading is
+        // evidence only if true was ever on the table. Measured with the synthesized
+        // control: without this line the native side cannot satisfy its own assertion
+        // (expanded was false from the start in BOTH modes — a vacuous pair).
+        msgs.forEach(m => m.expand(false));
+        say('allExpandedBefore', msgs.map(m => m.expanded));
         broken._bodyBin.set_layout_manager(null);
         say('brokenHasLayout', !!broken._bodyBin.layout_manager);
         say('brokenMapped', !!broken._bodyBin.mapped);
@@ -117,6 +161,39 @@ cat > "$V/probe-u-$LABEL.js" <<JSPROBE
         // the differentiator for "did the loop run past the broken entry?"
         say('healthyExpandedAfter', healthy.map(m => m.expanded));
         say('brokenMessageExpanded', broken.expanded);
+
+        // Second provocation, aimed at the OTHER half of workaround 2. The doctored
+        // layout manager above is absorbed by workaround 1 before collapse() ever
+        // throws, so the catch branch stays unreached and its state landing untested.
+        // Here a message's unexpand is shadowed by an own property that throws for a
+        // reason workaround 1 cannot absorb -- which is exactly what the catch exists
+        // for. The fade spy proves the branch ran to the end rather than landing only
+        // its first three steps. A fresh group, same reason as the close group below.
+        const g2 = new ml.NotificationMessageGroup(src);
+        await g2.expand();
+        const m2 = [...g2._notificationToMessage.values()];
+        let fadeCalls = 0;
+        const origFade = g2._updateStackedMessagesFade;
+        g2._updateStackedMessagesFade = function () {
+            fadeCalls++;
+            return origFade.call(this);
+        };
+        m2[0].unexpand = function () {
+            throw new TypeError('provoked collapse fault (harness own property)');
+        };
+        let fallbackThrew = false;
+        try {
+            await g2.collapse();
+        } catch (e) {
+            fallbackThrew = true;
+            out.fallbackRejection = String(e && e.message || e).slice(0, 100);
+        }
+        await sleep(400);
+        say('fallbackThrewToCaller', fallbackThrew);
+        say('fallbackExpandedAfter', g2._expanded);
+        say('fallbackCoverShown', g2._cover.visible);
+        say('fallbackFadeCalls', fadeCalls);
+        say('fallbackHeaderVisible', g2._headerBox.visible);
 
         // Regression (extension behaviour, same run): in a COLLAPSED merged group,
         // closing one card must destroy only that notification. Native
@@ -198,6 +275,9 @@ pre = [
      'got %r' % c.get('healthyAllHaveLayout')),
     ('source owned by the extension', c.get('ownSourcesHasSrc') is True,
      'got %r — the close guard cannot be judged without it' % c.get('ownSourcesHasSrc')),
+    ('the cards entered the collapse expanded',
+     bool(c.get('allExpandedBefore')) and all(c.get('allExpandedBefore')),
+     'got %r — "unexpanded afterwards" would prove nothing' % (c.get('allExpandedBefore'),)),
 ]
 if expect == 'guarded':
     main = [
@@ -216,6 +296,18 @@ if expect == 'guarded':
          c.get('notifsBeforeClose') is not None and
          c.get('notifsAfterClose') == c.get('notifsBeforeClose') - 1,
          'before %r after %r' % (c.get('notifsBeforeClose'), c.get('notifsAfterClose'))),
+        # The catch branch of workaround 2, provoked directly (see the second
+        # provocation in the probe): every step native would have run has to land.
+        ('provoked collapse fault was absorbed', c.get('fallbackThrewToCaller') is False,
+         'rejection %r' % d.get('fallbackRejection', '')),
+        ('catch landed expanded=false',       c.get('fallbackExpandedAfter') is False,
+         'got %r' % c.get('fallbackExpandedAfter')),
+        ('catch re-showed the cover',         c.get('fallbackCoverShown') is True,
+         'got %r' % c.get('fallbackCoverShown')),
+        ('catch ran the stacked-fade update', (c.get('fallbackFadeCalls') or 0) >= 1,
+         'got %r — the branch landed its first steps only' % c.get('fallbackFadeCalls')),
+        ('catch hid the group header',        c.get('fallbackHeaderVisible') is False,
+         'got %r — a header left over a collapsed group' % c.get('fallbackHeaderVisible')),
     ]
 else:
     main = [
@@ -226,6 +318,10 @@ else:
         ('cover never shown',                c.get('coverShown') is False, 'got %r' % c.get('coverShown')),
         ('the loop died at the doctored card', c.get('brokenMessageExpanded') is True,
          'got %r -- the fault was absorbed, so this tree is not the pre-fix one' % c.get('brokenMessageExpanded')),
+        ('the cards after it were never reached',
+         c.get('healthyExpandedAfter') is not None and
+         all(v is True for v in c.get('healthyExpandedAfter')),
+         'got %r' % (c.get('healthyExpandedAfter'),)),
         ('native close wiped the whole group',
          c.get('notifsAfterClose') == 0,
          'before %r after %r' % (c.get('notifsBeforeClose'), c.get('notifsAfterClose'))),
@@ -235,6 +331,20 @@ else:
         ('rejection is the known native TypeError',
          'expansion' in (d.get('collapseRejection') or ''),
          'got %r' % d.get('collapseRejection', '')),
+        # Same provocation, no catch: every step after the loop must be provably skipped.
+        ('provoked collapse fault reached the caller', c.get('fallbackThrewToCaller') is True,
+         'got %r — a catch is mounted, so this tree is not the pre-fix one'
+         % c.get('fallbackThrewToCaller')),
+        ('fallback rejection is the provoked TypeError',
+         'provoked collapse fault' in (d.get('fallbackRejection') or ''),
+         'got %r' % d.get('fallbackRejection', '')),
+        ('fallback group left corrupted (expanded=true)',
+         c.get('fallbackExpandedAfter') is True, 'got %r' % c.get('fallbackExpandedAfter')),
+        ('fallback cover never re-shown',
+         c.get('fallbackCoverShown') is False, 'got %r' % c.get('fallbackCoverShown')),
+        ('fallback skipped the fade update and left the header up',
+         (c.get('fallbackFadeCalls') or 0) == 0 and c.get('fallbackHeaderVisible') is True,
+         'fade %r header %r' % (c.get('fallbackFadeCalls'), c.get('fallbackHeaderVisible'))),
     ]
 bad = 0
 for name, ok, extra in pre + main:

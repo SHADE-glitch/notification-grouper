@@ -188,6 +188,26 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
             say('mergedNotifsAfterOpen', merged.notifications.length);
         }
 
+        // The other half of the same click: a merged source has no app, so native's
+        // openApp() returns before its Main.panel.closeCalendar() and the list stays open
+        // after a card with nowhere to jump is dismissed. The override closes the page only
+        // when the click takes the stack's last card. The panel page cannot be observed in
+        // a headless shell, so the promise under test is the call itself — judged twice,
+        // once with cards left (must not fire) and once on the last card (must fire).
+        if (merged) {
+            const origCloseCalendar = Main.panel.closeCalendar;
+            let closes = 0;
+            Main.panel.closeCalendar = () => { closes++; };
+            merged.open();
+            say('openWithCardsLeftClosedPage', closes === 0);
+            say('openWithCardsLeftCount', merged.notifications.length);
+            merged.notifications.slice(1).forEach(n => n.destroy());
+            say('mergedDownToOne', merged.notifications.length);
+            merged.open();
+            say('openOnLastCardClosedPage', closes === 1);
+            Main.panel.closeCalendar = origCloseCalendar;
+        }
+
         // ---- F1: a second enable() with NO disable() in between ----
         //
         // The daemon patches are idempotent (proved by 'restoredPristine' above), but
@@ -353,6 +373,32 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
             (m, s) => Math.max(m, s.notifications.length), 0));
         say('capTenSources', titled('CapTen').length);
 
+        // 1c) above the native ceiling. 13 sends with cap=30 must all survive in one stack —
+        //     native cannot do that, it drops inside addNotification before the push. Then back
+        //     to 10: the override must unmount AND the live stack must shrink in the same beat,
+        //     which is what proves the mount follows the setting rather than enable(). The own
+        //     property is the whole patch (addNotification lives on the prototype), so
+        //     hasOwnProperty is the mount state, read from outside the extension.
+        st.set_int('max-per-source', 30);
+        await sleep(200);
+        await sendWait('CapHigh', 13, 200);
+        await sleep(900);
+        say('capHighKeeps', titled('CapHigh').reduce(
+            (m, s) => Math.max(m, s.notifications.length), 0));
+        say('capHighSources', titled('CapHigh').length);
+        say('capHighOverrideMounted', (() => {
+            const s = titled('CapHigh')[0];
+            return !!s && Object.prototype.hasOwnProperty.call(s, 'addNotification');
+        })());
+        st.set_int('max-per-source', 10);
+        await sleep(500);
+        say('capBackToNativeKeeps', titled('CapHigh').reduce(
+            (m, s) => Math.max(m, s.notifications.length), 0));
+        say('capBackToNativeUnmounted', (() => {
+            const s = titled('CapHigh')[0];
+            return !!s && !Object.prototype.hasOwnProperty.call(s, 'addNotification');
+        })());
+
         // Stop the monitor and read what it saw. A count of 0 is not a product failure but an
         // instrument that never attached — the FAIL text carries the count so the two cases are
         // distinguishable at a glance.
@@ -373,6 +419,39 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         say('fdoClosedReasons', monReasons.join(','));
         say('fdoClosedAllExpired',
             monReasons.length > 0 && monReasons.every(r => r === 1));
+
+        // 1d) disable() has to undo the addNotification override too. Read from inside the
+        //     source's own 'destroy' handler, which runs before run_dispose()
+        //     (messageTray.js:605-608) — reading it after disable() would touch a disposed
+        //     wrapper and log a Gjs-CRITICAL whose stack repeats the wrapper frame, which is
+        //     what the F1 section above documents.
+        //
+        //     It runs AFTER the monitor is stopped on purpose: disable() retires every merged
+        //     card, and those reach the sender as DISMISSED(2) — Source.destroy(reason) hands
+        //     its undefined along to Notification.destroy, whose default parameter turns it
+        //     into DISMISSED. Measured: 22 reason-2 events from one disable(). Counting them
+        //     inside the trim window would make the EXPIRED-only reading above fail for a
+        //     reason that has nothing to do with trimming.
+        st.set_int('max-per-source', 30);
+        await sleep(200);
+        N('CapHigh', 'mounted again');
+        await sleep(500);
+        const capHighSrc = titled('CapHigh')[0];
+        const capObserved = {};
+        if (capHighSrc) {
+            capObserved.mountedBeforeDisable =
+                Object.prototype.hasOwnProperty.call(capHighSrc, 'addNotification');
+            capHighSrc.connect('destroy', () => {
+                capObserved.addRestored =
+                    !Object.prototype.hasOwnProperty.call(capHighSrc, 'addNotification');
+            });
+        }
+        out.capSetup = capObserved;
+        inst.disable();
+        inst.enable();
+        st.set_int('max-per-source', 10);
+        await sleep(1500);
+        say('capOverrideRestoredOnDisable', capObserved.addRestored === true);
 
         // 2) grouping off: sends must NOT merge (one source per pid)
         st.set_boolean('grouping-enabled', false);
@@ -407,6 +486,45 @@ cat > "$V/probe-$LABEL.js" <<JSPROBE
         st.set_boolean('ui-guards', true);
         await sleep(1600);
         say('guardsOnReattached', Uw.applied().length === 3);
+
+        // 4b) the fall-through diagnostic. IsoProbe is isolated above, so every send there
+        //     takes the silent not-mergeable branch. Four sends, of which only the first two
+        //     may be written — the count is taken from the shell log on the python side, so
+        //     "off stays silent" and "on writes one line each" are one measurement read twice.
+        st.set_boolean('log-fallthrough', true);
+        await sleep(200);
+        await sendWait('IsoProbe', 2, 400);
+        st.set_boolean('log-fallthrough', false);
+        await sleep(200);
+        await sendWait('IsoProbe', 2, 400);
+        say('fallthroughSends', 4);
+
+        // 4c) adoption of the pre-enable window — the login race. The daemon answers Notify
+        //     before ExtensionSystem gets to enable(), so a session-start sender keeps a native
+        //     per-pid stack that nothing merges into afterwards. Disable, send once (native
+        //     makes its own source), enable (attach adopts it), send again: both cards must end
+        //     in ONE stack. Then disable and check the adopted stack was handed back rather than
+        //     retired — its cards were never ours, and "disabling tears down only what this
+        //     extension created" is the promise on the line.
+        inst.disable();
+        await sendWait('AdoptProbe', 1, 400);
+        await sleep(600);
+        say('adoptNativeOnly', titled('AdoptProbe').length);
+        inst.enable();
+        await sleep(1500);
+        say('adoptKeysAfterEnable', [...inst._shared.keys()]);
+        await sendWait('AdoptProbe', 1, 400);
+        await sleep(600);
+        say('adoptedSourceCount', titled('AdoptProbe').length);
+        say('adoptedCardCount', titled('AdoptProbe').length === 1
+            ? titled('AdoptProbe')[0].notifications.length : -1);
+        inst.disable();
+        await sleep(400);
+        say('adoptedSurvivesDisableSources', titled('AdoptProbe').length);
+        say('adoptedSurvivesDisableCards', titled('AdoptProbe').length === 1
+            ? titled('AdoptProbe')[0].notifications.length : -1);
+        inst.enable();
+        await sleep(1500);
 
         // 5) cleanup obligation created by the settings layer: every changed:: handler
         //    must be disconnected by disable(), and the settings object dropped.
@@ -479,7 +597,11 @@ if disable_lines:
     tail = disable_lines[-1]
     claimed = tail.split('guards:')[-1].strip() if 'guards:' in tail else ''
 guards_claimed = claimed not in ('', '(none)')
+# The diagnostic switch's own output, counted from the shell log rather than from inside
+# the shell: the branch it reports is a log line, and that is the promise being made.
+ftLines = len(re.findall(r'fall-through branch=', log))
 f1 = d.get('f1Setup') or {}
+capSetup = d.get('capSetup') or {}
 checks = [
     ('no probe error',                 'error' not in d,        d.get('error', '')),
     ('daemon reachable',               d.get('haveFdo') is True, ''),
@@ -506,6 +628,17 @@ checks = [
     ('open() does not wipe the group', (d.get('mergedNotifsBeforeOpen') or 0) >= 3 and
                                        d.get('mergedNotifsAfterOpen') == d.get('mergedNotifsBeforeOpen'),
      'before %r after %r' % (d.get('mergedNotifsBeforeOpen'), d.get('mergedNotifsAfterOpen'))),
+    # Same click, the other promise: the page closes only once the stack is down to the
+    # card that was clicked. Both directions are judged, so "always closes" and "never
+    # closes" both go red here.
+    ('open() with cards left keeps the page open',
+     d.get('openWithCardsLeftClosedPage') is True and
+     (d.get('openWithCardsLeftCount') or 0) >= 2,
+     'closed %r with %r cards still in the stack'
+     % (d.get('openWithCardsLeftClosedPage'), d.get('openWithCardsLeftCount'))),
+    ('open() on the last card closes the page',
+     d.get('mergedDownToOne') == 1 and d.get('openOnLastCardClosedPage') is True,
+     'down to %r, page closed %r' % (d.get('mergedDownToOne'), d.get('openOnLastCardClosedPage'))),
     # ---- F1: enable() must be idempotent for ALL THREE patch layers ----
     ('F1 probe reached a live source', f1.get('recordFound') is True and
                                        f1.get('handlerFound') is True and
@@ -533,7 +666,7 @@ checks = [
      'disable() logged "guards: %s" while a wrapper was still installed' % claimed),
     ('disable restored cleanly',       d.get('finalRestored') is True, ''),
     # ---- P4: settings must change behaviour without a logout ----
-    ('four changed:: handlers armed',  d.get('settingsHandlerCount') == 4,
+    ('five changed:: handlers armed',  d.get('settingsHandlerCount') == 5,
      'got %r' % d.get('settingsHandlerCount')),
     ('max-per-source=3 trims to 3',    d.get('capTrimmedTo') == 3,
      'longest source holds %r' % d.get('capTrimmedTo')),
@@ -552,6 +685,22 @@ checks = [
                                           d.get('capTenSources') == 1,
      '13 sends left %r cards in %r sources (native would keep 10)'
      % (d.get('capTenKeeps'), d.get('capTenSources'))),
+    # ---- above the native ceiling: the override is the only thing between 10 and 30 ----
+    ('cap=30 keeps every card native would drop',
+     d.get('capHighKeeps') == 13 and d.get('capHighSources') == 1,
+     '13 sends left %r cards in %r sources (native alone keeps 10)'
+     % (d.get('capHighKeeps'), d.get('capHighSources'))),
+    ('the override mounts above 10 and unmounts at it',
+     d.get('capHighOverrideMounted') is True and d.get('capBackToNativeUnmounted') is True,
+     'mounted %r, unmounted %r' % (d.get('capHighOverrideMounted'),
+                                   d.get('capBackToNativeUnmounted'))),
+    ('lowering to the native ceiling trims the live stack at once',
+     d.get('capBackToNativeKeeps') == 10, 'got %r' % d.get('capBackToNativeKeeps')),
+    ('disable() removes the addNotification override',
+     capSetup.get('mountedBeforeDisable') is True and
+     d.get('capOverrideRestoredOnDisable') is True,
+     'mounted before disable %r, restored %r — without the first the second is vacuous'
+     % (capSetup.get('mountedBeforeDisable'), d.get('capOverrideRestoredOnDisable'))),
     # ---- the reason must survive the trip onto the bus, not just inside the shell ----
     ('FDO sees EXPIRED for evicted cards', d.get('fdoClosedAllExpired') is True,
      'captured %r NotificationClosed (reasons %r) — 0 means the monitor never attached '
@@ -570,6 +719,26 @@ checks = [
      'a wrapper is still live on the prototypes after turning the switch off'),
     ('ui-guards on re-attaches them',  d.get('guardsOnReattached') is True,
      'got %r applied' % d.get('guardsOnReattached')),
+    # 4 isolated sends took the silent fall-through branch, the switch on for the first
+    # two only. Exactly 2 lines is the single reading that judges both directions: 4 means
+    # "off" still logs, 0 means "on" logs nothing.
+    ('log-fallthrough writes one line per skipped merge',
+     d.get('fallthroughSends') == 4 and ftLines == 2,
+     'got %r fall-through lines for 4 sends (want exactly 2: 2 logged, 2 silent)'
+     % ftLines),
+    # ---- adoption: the stack that arrived before enable() must not stay a stranger ----
+    ('a pre-enable stack is adopted, not duplicated',
+     d.get('adoptNativeOnly') == 1 and d.get('adoptedSourceCount') == 1 and
+     d.get('adoptedCardCount') == 2,
+     'native %r -> after adoption %r sources / %r cards (want 1 source, 2 cards)'
+     % (d.get('adoptNativeOnly'), d.get('adoptedSourceCount'), d.get('adoptedCardCount'))),
+    ('adopted key rebuilt from the declared title',
+     'app:adoptprobe' in (d.get('adoptKeysAfterEnable') or []),
+     'got %r' % (d.get('adoptKeysAfterEnable'),)),
+    ('disable hands an adopted stack back instead of retiring it',
+     d.get('adoptedSurvivesDisableSources') == 1 and d.get('adoptedSurvivesDisableCards') == 2,
+     '%r sources / %r cards after disable (want 1/2 — its cards were never ours)'
+     % (d.get('adoptedSurvivesDisableSources'), d.get('adoptedSurvivesDisableCards'))),
     ('disable disconnects settings',   d.get('settingsHandlersDetached') is True,
      'changed:: handlers left connected — the cleanup obligation the settings layer adds'),
     ('disable drops the settings object', d.get('settingsDropped') is True, ''),
