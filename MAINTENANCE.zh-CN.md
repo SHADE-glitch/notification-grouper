@@ -89,7 +89,7 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
   全是 `St.Adjustment` / `Gjs_ui_layout_UiActor` 在换壳那一秒的噪声。我们那个缺陷的特征串
   带类名，判据必须写全 `notificationDaemon_FdoNotificationDaemonSource`（`smoke.sh` 已如此）。
 
-## Shell 内部接口清单（50.1 实测，核对日期 2026-10-09）
+## Shell 内部接口清单（50.1 实测，核对日期 2026-10-09，2026-11-05 重读）
 
 `扩展处` 只写**符号锚**（函数名 / 被赋的值），不写本仓库的行号——本仓行号每一轮都漂，而符号名是
 `npm test` 正在校验的东西（`every declared patch point is still named in the module that owns it`），漂了会红。
@@ -109,9 +109,10 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 | 10 | `NotificationMessage.prototype.close` | `attach()` 里 `NotificationMessage.prototype.close = …`（`detach()` 还原） | **仅继承**：真身 `Message.close` `messageList.js:541`，`NotificationMessage` 无自有 `close`；默认处理器 `on_close` `:726` | 见 F5：上游动 `Message.close` 会连带影响这一层 |
 | 11 | `Message._bodyBin` / `._expanded` / `Group._cover` / `expanded` getter | `uiWorkarounds.js` 内 | `messageList.js:512`、`:909`、`:904`、`:952`（单卡组报 `expanded===true`） | 私有字段，兜底的判据 |
 | 12 | 折叠组里 close 升级为整组关闭 | 兜底的触发条件 | `messageList.js:1107-1112`（`signal_stop_emission` `:1110`、`this.close()` `:1111`）；点击被吞 `:1114-1119`（`if (!this.expanded)` `:1115`） | 已知上游行为，不是缺陷本身 |
-| 13 | `MAX_NOTIFICATIONS_PER_SOURCE = 10` | `NATIVE_MAX_PER_SOURCE` 常量 + `_evictTo()` | `messageTray.js:25`，原生在 **push 之前**同步削位 `:577-579`，reason `EXPIRED`（枚举 `:48-53`） | 设置项 `max-per-source` 的上界来源 |
+| 13 | `MAX_NOTIFICATIONS_PER_SOURCE = 10` | `NATIVE_MAX_PER_SOURCE` 常量、`_evictTo()`、`_applyCapOverride()` 的阈值 | `messageTray.js:25`，原生在 **push 之前**同步削位 `:577-580`，reason `EXPIRED`（枚举 `:48-53`） | `max-per-source` 的**默认值**，不是上界（上界是 30，见 13c 与 D-034） |
+| 13c | `Source.prototype.addNotification(notification)` | **按实例**覆盖 `addNotification`，仅在 `max-per-source` > 10 时挂载，卸载就是删掉自有属性 | `messageTray.js:573-592`：去重 `:574-575`、削位 `while` `:577-580`、两处 `connect` `:581-589`、`push` `:590`、`notification-added` + `notification-request-banner` `:592-593`、`countUpdated()` `:594` | 真正执行的仍是原生本体——覆盖只是递给它一个短到让它的 `while` 打不着的数组，随后把条目放回去。没有复制实现，上游改动会被继承。 |
 | 13b | **Source 在自己最后一条通知被销毁时自我销毁** | 决定了削位只能放在 push **之后** | `messageTray.js:569-570`：`if (!this._inDestruction && this.notifications.length === 0) this.destroy()` | 硬约束：`_evictTo(…, 0)` 会让随后原生的 `addNotification`（`:592`）操作已 dispose 的对象，实测 `Gjs-CRITICAL … has been already disposed`，栈为 `notificationDaemon.js:266 → :367 → messageTray.js:592` |
-| 14 | destroy reason → FDO `NotificationClosed` | 不干预 | `notificationDaemon.js:178-195`（EXPIRED→1 / DISMISSED→2 / SOURCE_CLOSED→3 / 其它→4），发出 `:300-302` | `EXPIRED` 传错＝替用户“手动关闭”，见 `_evictTo` 注释 |
+| 14 | destroy reason → FDO `NotificationClosed` | 不干预 | `notificationDaemon.js:178-195`（EXPIRED→1 / DISMISSED→2 / SOURCE_CLOSED→3 / 其它→4），发出 `:300-302` | `EXPIRED` 传错＝替用户“手动关闭”，见 `_evictTo` 注释。**2026-11-05 实测**：不带 reason 的 `Source.destroy()` 走不到「其它→4」那支——`Source.destroy(reason)`（`messageTray.js:596-600`）把 `undefined` 继续交给 `Notification.destroy(reason = DISMISSED)`（`:488`），所以禁用退休的卡片到达发送方是 **2** 而不是 4（D-035）。因此 harness 那个"总线上只允许 EXPIRED"的取样窗口里不能夹一次 `disable()`。 |
 | 15 | `ExtensionBase.getSettings(schema)` | `_loadSettings()` 里的 `this.getSettings()` | `extensions/sharedInternals.js:92`；`metadata.json` 需 `settings-schema`；GNOME 50 **不再**自动编译扩展自带 schema（`extensionUtils.js`/`extensionSystem.js` 里零 `compile_schemas`） | 公共 API（扩展框架） |
 
 **设置的一条实操注意**（本机实测）：扩展用的 schema 只存在于扩展目录的 `schemas/`，
@@ -195,9 +196,11 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 - **不重建 TTL / 清组按钮 / 组头标题覆盖**（D-003 保持）：那些是行为改写，不是分组。
 - **`/proc` 反查发送方身份**：已否决（用户拍板）。分组能力的天花板是协议层——发送方不声明
   `app_name` 时按 pid 隔离是对的，唯一的修法是发送方自己带 `--app-name`。
-- **上限提到 10 以上**：需要复制原生 `addNotification`（销毁旧条目 + 两处 connect + push +
-  `countUpdated`），为一个低频收益多加第四个脆弱补丁点，不划算。写进了 README
-  § What it does not do。
+- **收养拿不回 `desktop-entry` hint**（D-033）：挂载时只剩来源自己声明的标题，所以重建的键
+  只能还原 `computeGroup` 的 `app_name` 那一路；而同名两栈根本无法并成一栈，因为
+  `Notification` 的 `source` 是 construct-only。两处限制都写进了 README § Known limitations。
+- **没有按栈清空**（D-003 仍然成立）：把"关一张卡"改回"关整组"就等于撤销合并栈依赖的那条
+  兜底；加一个清除按钮意味着注入 UI。列表底部自己的 Clear 是唯一的批量退场手段。
 - **`_removeNotification` 的脏条目成因**（`messageList.js:1152/:1161/:1170`）：根因在上游，
   本扩展只在下游兜住它，不去重写原生删除路径。
 - **三处兜底作为一个降级单元**（F5）：`NotificationMessage.prototype.close` 只是继承来的，

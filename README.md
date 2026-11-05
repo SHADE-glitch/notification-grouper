@@ -67,17 +67,17 @@ Read this before opening an issue — several of these are deliberate.
   pure function of the identity the sender declares. What remains configurable is four
   switches ([Settings](#settings)), none of which re-introduces matching: the only list
   you can fill is a set of application names to leave alone.
-- **The stack size cap can only be lowered, never raised.** GNOME keeps at most
+- **The stack size cap does not re-implement GNOME's trimming.** GNOME keeps at most
   10 notifications per source (`messageTray.js:25`, oldest destroyed synchronously at
-  `:577-580`). `max-per-source` lets you set 1..10; raising it past 10 would mean
-  re-implementing native `addNotification`, i.e. a fourth fragile patch point, so it is
-  deliberately not offered. See [Known limitations](#known-limitations) for what merging
-  does to that cap.
-- **No UI changes of its own.** Icons, titles, banners and urgency are all left to GNOME.
-  The extension injects no buttons and overrides no headers. The only click-behaviour
+  `:577-580`). `max-per-source` goes 1..30: at 10 or below that native rule is the whole
+  story and nothing extra is mounted; above it the extension only keeps GNOME from firing,
+  and GNOME's own `addNotification` still does the work. See
+  [Known limitations](#known-limitations) for what merging does to that cap.
+- **No UI of its own.** Icons, titles, banners and urgency are all left to GNOME. The
+  extension injects no buttons and overrides no headers. The only click-behaviour
   differences are the two narrow ones described under
   [Click behaviour to expect](#click-behaviour-to-expect-native-not-configurable)
-  — both applied **only to the stacks this extension itself creates**.
+  — both applied **only to the stacks this extension itself serves**.
 
 ## 🔬 How it works
 
@@ -92,6 +92,12 @@ Two methods are wrapped on the FDO backend instance
 Both methods must exist for anything to be installed. If either is missing the
 extension stays completely inert and logs one warning — it never half-attaches.
 
+On top of those two, every stack this extension serves gets **per-instance** overrides and
+nothing else: `open()` (below) and, only when the cap is raised past GNOME's own,
+`addNotification`. Stacks that already exist when the extension attaches are adopted into
+the same treatment — [Known limitations](#known-limitations) says why, and what adoption
+still cannot fix.
+
 ### Click behaviour of the merged source
 
 Native `FdoNotificationDaemonSource.open()` does two things: it activates the owning
@@ -102,10 +108,12 @@ turns that one source into the whole group, so the same call used to wipe the en
 stack: click a card that has no place to jump to, and the list emptied while the
 calendar stayed open — a blank page, with the group gone.
 
-The extension therefore **overrides `open()` on the sources it creates** (and only
+The extension therefore **overrides `open()` on the sources it serves** (and only
 those): it keeps the app-activation half and drops the mass destroy. The clicked card
 still goes away on its own, because `Notification.activate()` calls `destroy()` on the
-non-resident notification. Net effect: clicking one card removes exactly that card.
+non-resident notification. Net effect: clicking one card removes exactly that card — and
+clicking the last card of a stack closes the notification page, which native does only for
+a stack that has an app to activate, and a merged stack never has one.
 
 For the same reason it diverts the **close** path: closing a card in a *collapsed*
 group normally closes the whole group (`messageList.js:1107-1112` — a per-source behaviour
@@ -127,14 +135,16 @@ catches cross-process misalignment; the name catches one process interleaving
 sends under different names, which is the case that would merge into the wrong
 stack.
 
-`disable()` restores both methods, every overridden source `open()`, disconnects the
-per-source and settings handlers, clears the cache, and **destroys the merged sources it
-created**. The last step is not cosmetic: such a source holds a D-Bus name watch and a
+`disable()` restores both methods, every per-instance override (`open()` and the cap
+override), disconnects the per-source and settings handlers, clears the cache, **destroys
+the merged sources it created** and **hands back the sources it adopted**. Destroying is
+not cosmetic for the ones it created: such a source holds a D-Bus name watch and a
 notification policy that are only released by `Source.destroy()`
 (`messageTray.js:597-609`), and once `open()` has been restored to the native one, leaving
 the source alive would put "click one card, lose the whole group" back on the table —
-after disabling. Disabling therefore withdraws everything the extension did; see
-[Known limitations](#known-limitations).
+after disabling. An adopted source is different: its cards were never this extension's, so
+retiring them would break "disabling touches nothing native", and it is simply returned to
+native ownership. See [Known limitations](#known-limitations).
 
 ### Group key
 
@@ -160,14 +170,15 @@ gnome-extensions prefs notification-grouper@local
 ```
 
 Everything applies **immediately** — you do not have to disable and re-enable, and you do
-not have to log out. The page has a restore-defaults action for all four keys at once.
+not have to log out. The page has a restore-defaults action for all five keys at once.
 
 | Setting | Key | Default | What it does |
 | --- | --- | --- | --- |
 | Group by app | `grouping-enabled` | on | Off = back to stock GNOME: one stack per sending process. |
-| Cards kept per stack | `max-per-source` | 10 | How many cards one merged stack keeps before the **oldest** is dropped. 1..10; GNOME's own limit is the ceiling, so it can only be lowered. |
+| Cards kept per stack | `max-per-source` | 10 | How many cards one merged stack keeps before the **oldest** is dropped. 1..30. At 10 or below this is GNOME's own rule and nothing extra runs; above it the extension keeps GNOME from dropping the card. |
 | Work around GNOME's notification-list defects | `ui-guards` | on | The two behaviours described under [the workaround section](#-workaround-for-a-gnome-50-notification-list-defect). Turn it off only to compare against unpatched GNOME. |
 | Apps that keep their own stacks | `isolate-apps` | empty | Names listed here are never merged. Matched on the identity actually used for the group key, after trimming and lower-casing; a trailing `.desktop` is ignored. |
+| Log notifications left out of a stack | `log-fallthrough` | off | One journal line per notification that was not merged, naming the reason and the app. The only way to answer "why is this app in two stacks" from a running session. Never logs the message text. |
 
 Values live under
 `org.gnome.shell.extensions.notification-grouper` in dconf, and the extension reads them
@@ -175,13 +186,17 @@ once at enable plus on every change — nothing is read on the notification hot 
 defaults are exactly the behaviour described above, so a fresh install needs no settings
 at all.
 
-Two honest edges:
+Three honest edges:
 
 - Turning **Group by app** off does not split the stacks that are already merged; it stops
-  new notifications from joining them. Disabling the extension does tear them down.
-- `max-per-source` applies to the stacks this extension creates. A lower value trims
+  new notifications from joining them. Disabling the extension retires the stacks it
+  created, and hands back the ones it adopted.
+- `max-per-source` applies to the stacks this extension serves. A lower value trims
   existing stacks right away, by design, so the change is visible without waiting for new
   notifications.
+- **Log notifications left out of a stack** is the one switch that writes per notification.
+  It is off by default, and the extension stays silent between enable and disable while it
+  is off.
 
 ## 🧩 Compatibility
 
@@ -217,10 +232,11 @@ Upstream renamed something — please open an issue with this line:
 ## 🔒 Privacy
 
 - Notification **bodies are never written to the log**, and there is no
-  per-notification logging at all: one line per enable, one per disable, and a
-  line or two when you flip a switch.
+  per-notification logging: one line per enable, one per disable, and a
+  line or two when you flip a switch. The one exception is the opt-in
+  **Log notifications left out of a stack**, which exists to be per notification.
 - No network access. The extension writes no files and keeps no state of its own
-  beyond the four settings keys you change in the prefs page (dconf, standard
+  beyond the five settings keys you change in the prefs page (dconf, standard
   GNOME storage — clear them by uninstalling or with `dconf reset`). The only
   thing it reads per notification is the sender-declared identity already present
   in it.
@@ -352,7 +368,9 @@ The defect, verified against GNOME Shell 50.1 line numbers:
 
 The guards: `Message.unexpand` lands its end state instead of throwing when the actor has
 no layout manager (which lets the loop finish for the remaining messages), and
-`NotificationMessageGroup.collapse` forces the state to land if anything still throws.
+`NotificationMessageGroup.collapse` forces **every step native would have run after that
+loop** — expanded flag, `expanded` signal, cover, stacked fade, header hide — to land if
+anything still throws.
 
 Both guards are **strictly independent of grouping** — reached by dynamic `import()`, so a
 GNOME version that renames `messageList.js` costs you only the guards, never grouping. They
@@ -378,9 +396,12 @@ defects** switch turns them off at runtime if you want to compare against stock 
   anywhere.** `openApp()` returns immediately when `source.app` is null, and the path this
   extension handles is precisely the path where it is null. Whether a click launches
   something is decided by the *sender* offering a `default` action
-  (`notificationDaemon.js:232-241`) — no extension can retrofit it.
+  (`notificationDaemon.js:232-241`) — no extension can retrofit it. What this extension
+  does change is what happens *after* such a click: on the last card of a stack the page
+  closes, so the click is not mistaken for nothing having happened.
 - **Clicking one card's close button now closes just that card**, in a collapsed merged
-  group too (native would have closed the whole group there).
+  group too (native would have closed the whole group there). Nothing closes a whole stack
+  in one click — see [Known limitations](#known-limitations).
 
 <a name="known-limitations"></a>
 
@@ -392,35 +413,56 @@ defects** switch turns them off at runtime if you want to compare against stock 
 - **A merged stack drops its oldest card sooner than GNOME does.** GNOME keeps at most 10
   notifications *per source* and destroys the oldest synchronously when the eleventh
   arrives (`messageTray.js:25`, `:577-580`, reason `EXPIRED`). Native sources hold roughly
-  one card each, so almost nothing is ever dropped; merging puts an whole application's
-  cards in one source, so the tenth card of a *busy app* now costs the first one. The
-  extension adds no drops of its own and cannot stop the native one without re-implementing
-  `addNotification` — so `max-per-source` only goes **down**, and a sender that floods you
-  is better silenced at the source than filtered here.
+  one card each, so almost nothing is ever dropped; merging puts a whole application's
+  cards in one source, so the tenth card of a *busy app* now costs the first one.
+  `max-per-source` goes up to 30, and above 10 the extension keeps GNOME from firing that
+  drop — see [What it does not do](#-what-it-does-not-do) for how. A sender that floods
+  you is still better silenced at the source than filtered here.
 - **A `desktop-entry` hint that names a non-existent `.desktop` file decouples
   the group key from the stack title.** The group is keyed on the hint while
   the title comes from `app_name`. Narrow case — real GTK apps resolve to an
   `App` and take the native path — but two applications sharing such a hint
   would land in one stack.
-- **Disabling tears down the merged stacks.** On `disable()` the sources this extension
-  created are destroyed, which retires the cards still sitting in them. This is
+- **A notification that arrives in the first few hundred milliseconds of the session can
+  still sit in a stack of its own.** The notification daemon answers `Notify` before the
+  extension is enabled — measured at login, 621 ms — and merging happens when a
+  notification's source is resolved, a moment that has already passed. Attaching now
+  adopts those stacks, with two limits: the hint that the grouping key prefers is gone by
+  the time the adoption looks, so the key is rebuilt from the stack's declared title
+  (the `app_name` branch only), and when two stacks declare the same title the first one
+  wins, because pulling the second's cards into it would need re-parenting, which GNOME
+  does not allow (`source` is construct-only). If it ever reappears, turn on
+  **Log notifications left out of a stack** and the journal says which branch the
+  notification took.
+- **Disabling tears down the merged stacks it created.** On `disable()` the sources this
+  extension created are destroyed, which retires the cards still sitting in them. This is
   deliberate: those sources hold a D-Bus name watch and a notification policy that only
   `destroy()` releases, and leaving them alive with the native `open()` restored would
-  re-create the bug this extension exists to fix. Nothing already sent to a *native* stack
-  is affected. Turning **Group by app** off is the gentler option — it stops new
-  notifications from merging and keeps existing stacks. The lock screen does not reach
+  re-create the bug this extension exists to fix. **Adopted** stacks are handed back
+  instead, untouched — nothing already sent to a native stack is retired. Turning
+  **Group by app** off is the gentler option: it stops new notifications from merging and
+  keeps existing stacks. The lock screen does not reach
   this path: `metadata.json` declares `session-modes` `["user", "unlock-dialog"]`, so
   GNOME keeps the extension active while locked. Without that key GNOME disables the
   extension on lock, `disable()` runs, and every merged stack is retired.
-- **Cards that *disabling* retires reach the sender as `NotificationClosed` with reason 4
-  (`undefined`)**, not "source closed". Native
-  `FdoNotificationDaemonSource.destroy()` takes no argument and calls `super.destroy()`
-  without one (`notificationDaemon.js:384-391`), so the reason is dropped before it can be
-  mapped; the only way to change it is to patch a third method, which is not worth a
-  signal most senders ignore. Cards removed by the **per-stack cap** are not like this: they
-  keep `EXPIRED`, which the FDO layer reports as reason 1
+- **Cards that *disabling* retires reach the sender as `NotificationClosed` with reason 2
+  (`DISMISSED`)**, not "expired" and not the `undefined` this document used to claim.
+  Native `FdoNotificationDaemonSource.destroy()` does drop the reason argument
+  (`notificationDaemon.js:384-391`), but `Source.destroy()` then passes its `undefined`
+  along to `Notification.destroy(reason = DISMISSED)` (`messageTray.js:488`, `:596-600`),
+  where the default parameter fills it in. Measured on the harness bus: 22 closes from one
+  disable, all reason 2. The only way to change it is to patch a third method, which is
+  not worth a signal most senders ignore. Cards removed by the **per-stack cap** are not
+  like this: they keep `EXPIRED`, which the FDO layer reports as reason 1
   (`notificationDaemon.js:178-195`) — and the headless harness asserts that reading on the
   bus, from a separate observer, not just as an in-process value.
+- **Nothing closes a whole stack in one click.** Native would have: in a collapsed group,
+  closing one card closed the group, and that is the defect this extension turns into
+  "close this card" (see [the workaround section](#-workaround-for-a-gnome-50-notification-list-defect)).
+  Merging is what made the difference visible: a 10-card stack now costs 10 clicks to
+  clear by hand. The list's own **Clear** button still dismisses everything at once.
+  Adding a per-stack clear would mean injecting a button, which this extension does not
+  do.
 - The extension UUID is `notification-grouper@local`.
 
 ### Troubleshooting
@@ -436,6 +478,12 @@ journalctl --user -b | grep -i notification-grouper
   sender pass `--app-name` (or a `desktop-entry` hint) and it becomes groupable.
 - **Two unrelated tools share a stack.** They both send as a generic name such as
   `notify-send`. Add one of them to **Apps that keep their own stacks**.
+- **One app sits in two stacks, same title.** That app sent something before the
+  extension was attached — at session start, where the daemon answers `Notify` a few
+  hundred milliseconds first. Attaching adopts such stacks, so a *new* notification from
+  that app should land in the adopted one; if it does not, turn on **Log notifications
+  left out of a stack**, send one, and the journal names the branch that took it. The
+  stale stack itself is a normal native stack: dismissing its card clears it.
 - **`WARNING degraded, staying inert`.** GNOME renamed one of the two daemon methods this
   extension wraps. Please open an issue with that line; grouping is off until it is fixed.
 - **`UI guards degraded` / `UI guards attach failed`.** `ui/messageList.js` could not be

@@ -67,8 +67,21 @@ facts are the thing that drifts.
   means the synchronicity assumption broke.
 - **Patching a prototype method of an exported ES-module class is allowed only for the
   three workarounds in `uiWorkarounds.js`**, and the original must be captured and restored.
-  The only other patch is the **per-instance** `open()` override, and only on sources this
-  extension created. Do not reassign ESModule *export bindings* — never possible, never try.
+  Every other patch is **per-instance and scoped to the stacks this extension serves** (the
+  ones it created *and* the ones it adopted — see the adoption rule): `open()`, and
+  `addNotification` while `max-per-source` is above native's ceiling. Both are recorded on
+  the `_shared` record and undone per record by identity. Do not reassign ESModule *export
+  bindings* — never possible, never try.
+- **Adoption exists because of a startup order nobody can change.** The daemon answers
+  `Notify` before ExtensionSystem enables (measured at login: the relay owning
+  `org.freedesktop.Notifications` came up 621 ms before the patches were installed, and the
+  shell activated it itself, so the order is structural). `_adoptExistingSources()` runs at
+  the end of `_attach()` and takes over the no-App FDO sources that already exist. Three
+  obligations come with it: an adopted stack must be marked `adopted` and **handed back** on
+  `disable()` (its cards were never ours — destroying them would break "disabling touches
+  nothing native"); its key can only be rebuilt from the source's title, so the
+  `desktop-entry` branch is unrecoverable there; and it must go through
+  `_registerShared()`, never a second copy of the mount sequence, or the two paths drift.
 - **The merged source's `open()` override is load-bearing.** Native
   `FdoNotificationDaemonSource.open()` ends in `destroyNonResidentNotifications()`, which
   empties the whole source. A native source holds roughly one card so that is invisible; a
@@ -112,14 +125,21 @@ facts are the thing that drifts.
   Reset bookkeeping fields only. This is the same invariant as the previous bullet, applied
   to the second and third layer — the first one was fixed in v4 and the others were not.
 - **`disable()` must be able to undo everything `enable()` did**, for every layer: both
-  daemon patches, each self-created source's `open()`, every per-source signal, all three
-  prototypes, all four `changed::` settings handlers — **and the merged sources themselves**.
+  daemon patches, each self-created source's `open()` and (above the native ceiling) its
+  `addNotification`, every per-source signal, all three prototypes, all five `changed::`
+  settings handlers — **and the merged sources themselves**, except the adopted ones, which
+  are handed back rather than destroyed.
   A self-created source holds a `Gio.DBus.watch_name` subscription and a
   `NotificationPolicy` that only `Source.destroy()` releases; and once `open()` has been
   restored to the native one, leaving that source alive puts "click one card, lose the group"
   back on the table *after* disabling. Native
-  `FdoNotificationDaemonSource.destroy()` drops the reason argument, so those cards reach
-  the sender as `NotificationClosed` reason 4 (`undefined`) — accepted, documented.
+  `FdoNotificationDaemonSource.destroy()` drops the reason argument, but
+  `Source.destroy(reason)` forwards its `undefined` to `Notification.destroy(reason =
+  DISMISSED)` (`messageTray.js:488`, `:596-600`), so those cards reach the sender as
+  `NotificationClosed` reason **2** — measured on the harness bus, not inferred (D-035; this
+  file used to claim 4). Consequence for the harnesses: a `disable()` inside the EXPIRED-only
+  bus capture window poisons the reading, so the disable-path probes run after the monitor is
+  stopped.
 - **`_detachPatches()` is a no-op when nothing is attached**, so `disable()` may be called
   twice and never reports "restored 0 patches" after a real restore.
 
@@ -138,8 +158,10 @@ facts are the thing that drifts.
   changes. `schemas/*.xml` and `schemas/gschemas.compiled` land in the **same** commit (GNOME
   50 no longer compiles schemas shipped by extensions). Defaults must equal the behaviour the
   extension had before the key existed, so a fresh install still needs no configuration.
-  `max-per-source`'s upper bound is native `MAX_NOTIFICATIONS_PER_SOURCE` and must not be
-  raised above it.
+  `max-per-source`'s **default** is native `MAX_NOTIFICATIONS_PER_SOURCE` (10) and must stay
+  there; its upper bound is 30, and the extension mounts nothing while the value is at or
+  below 10 — the above-native range is the only part that changes behaviour, so a fresh
+  install still runs pure native trimming (D-034).
 - **A handler registered from settings is a cleanup obligation.** Every `changed::` id goes
   into `_settingsHids` and `disable()` disconnects each one — same rule as every patch point.
 - **`prefs.js` may only use Adw/Gtk members that exist on this machine.** libadwaita 1.9.1 has
@@ -148,7 +170,10 @@ facts are the thing that drifts.
   used member to `tests/check-prefs-props.js` and run `npm run check:prefs`; that gate exists
   because a missing property is a runtime warning the harnesses cannot see.
 - **Logging discipline**: one line for enable, one for disable, a line or two when a switch is
-  flipped — never per notification, never a notification body.
+  flipped — never per notification, never a notification body. The single sanctioned exception
+  is `log-fallthrough`, which is off by default and exists precisely to log per notification:
+  the silent fall-through paths are otherwise unanswerable from a live session (D-031). Keep
+  it to one line, name the branch and the app, never a body.
 
 ## Proving things
 - **Red before green.** Write the assertion, run it against the pre-change tree
@@ -205,8 +230,8 @@ facts are the thing that drifts.
 - `npm run verify:ui-guard` — provocation bench; `EXPECT=guarded`/`EXPECT=native` must give
   opposite verdicts, and both are asserted by exit code rather than by a human diff.
 - `npm run verify:provoke` — mutation bench. Its scope is "any gate that could stay green
-  while the implementation idles": the four settings keys, when the trim runs, and the reason
-  we hand the sender. Each mutation must turn its named assertion red.
+  while the implementation idles": the five settings keys, when the trim runs, the reason we
+  hand the sender, and the last-card page close. Each mutation must turn its named assertion red.
 - `npm run bench` — engine throughput. It prints numbers and asserts nothing, so it is not in
   `npm test`; run it after touching `computeGroup()`, because grouping runs on the
   notification hot path and a regression there is user-visible as input lag.

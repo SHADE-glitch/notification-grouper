@@ -607,3 +607,157 @@ Evidence 2026-10-27: `npm run check` PASS, `npm test` 14/14. The leak itself nee
 Cost     One extra function call per enable; on re-enable the old handlers are disconnected before
          the new ones are made, which is what the invariant already required.
 Commit   23be142
+
+### D-029 · 2026-11-05 · fix · v11
+Symptom  The collapse fallback caught the throw and landed three of native's post-loop steps
+         (`_expanded`, `notify('expanded')`, `_cover.show()`), skipping the stacked-fade
+         rewrite (`messageList.js:1001`) and the header hide (`:1008`). A group that reached
+         the catch therefore kept a stale stack fade and a group header sitting over what is
+         now a collapsed stack — the audit's P2 #3, open since 2026-10-26.
+Change   The catch runs every step native would have run after its loop, in native's order,
+         minus the animation native never reaches.
+Evidence L1 `npm run verify:ui-guard` 18/18 guarded and 19/19 native (see D-030: the native
+         side had not been runnable before this batch). The branch is entered by a provoked
+         throw, not by the layout-manager fault — workaround 1 absorbs that before
+         `collapse()` ever throws, so before this batch the catch had never executed in any
+         harness. The two new readings flip between the builds.
+Cost     Two calls in a branch that should almost never run. If upstream renames either, the
+         optional call skips it and the inner catch still holds the state landing.
+Commit   84074d3
+
+### D-030 · 2026-11-05 · chore · v11
+Symptom  `EXPECT=native` of the ui-guard bench could not start: it pointed at `528b234^`, the
+         last tree without the guard, which predates `96ce1a0` (the settings schema), so the
+         script's own "metadata.json has no settings-schema" guard exited before one
+         assertion ran. D-012's claim "ui-guard now gates by exit code on
+         EXPECT=guarded|native" had therefore only ever been executed on one side. Running it
+         for the first time also showed two readings in that bench were **vacuous**: no card
+         was ever in the expanded state before the collapse, so "unexpanded afterwards" read
+         false in both builds and the native side could not satisfy its own assertion.
+Change   The native control is synthesized from the current tree (`uiWorkarounds.attach()`
+         neutralized in a /tmp copy, with an instrument check that stops loudly if the
+         signature drifts); the probe puts every card into the expanded state before
+         doctoring one; `tests/repo.test.mjs`'s bilingual HTTP-status-code assertion deleted —
+         the hit set is empty on both sides of every pair, because this repository has no
+         HTTP semantics.
+Evidence L1 both modes now run to completion on this machine with opposite verdicts on the
+         same readings (18/18 guarded, 19/19 native). L0 `npm test` after the deletion: the
+         repository suite loses exactly that one case and stays green.
+Cost     The control is now derived rather than historical: it proves "no guards mounted",
+         not "the tree as of commit X" — which is what the flip was always meant to show.
+Commit   ff06f7e
+
+### D-031 · 2026-11-05 · fix · v11
+Symptom  Three of the four fall-through paths are silent by design, so "why is this app not
+         in a stack" cannot be answered from a running session: the journal says only
+         enable/attach/disable. The 2026-11-05 review had to reconstruct one such case from
+         the shell's relative-time rounding plus `journalctl -o short-precise`, which is not
+         something a user can do.
+Change   Fifth schema key `log-fallthrough` (bool, default **false**): one line per
+         notification left out of a stack, naming the branch and the app. The two guard
+         branches keep reporting once by themselves — they are alarms for a broken
+         assumption, not per-event diagnostics. Never logs a body.
+Evidence L1 `npm run verify:headless` 51/51, including the new reading that counts the
+         journal lines for four isolated sends, two of them with the switch on: exactly 2 is
+         the only value that judges both directions. Mutation added to
+         `tests/provoke-settings.sh`.
+Cost     Breaks the "no per-notify logging" rule **only when the user turns it on**, which
+         is why the default is off and why AGENTS.md's logging discipline was amended in the
+         same batch.
+Commit   84074d3, ff06f7e
+
+### D-032 · 2026-11-05 · fix · v11
+Symptom  Clicking a card with no jump target removed the card and left the notification page
+         open, which reads as "nothing happened". Native `openApp()` closes the page only
+         after activating an app (`notificationDaemon.js:375-382`), and every source this
+         extension serves has a null app by definition — so the close was never reachable on
+         this path, in the extension's build or in stock GNOME.
+Change   The existing per-instance `open()` override closes the page once the stack is down
+         to the card being clicked (`notifications.length <= 1`, read before `activate()`
+         destroys it). No new patch surface: the override already existed.
+Evidence L1 two readings that flip together — click with cards left keeps the page open,
+         click on the last card closes it (`Main.panel.closeCalendar` stubbed and counted in
+         the throwaway shell). Mutation `last-card-close-removed`.
+Cost     Crosses the "UI behaviour stays native" line for this one gesture. Deliberately
+         scoped to the last card: closing the page while four cards remain would be worse
+         than the symptom.
+Commit   84074d3, ff06f7e
+
+### D-033 · 2026-11-05 · revert · v11
+Symptom  The notification daemon answers `Notify` **before** ExtensionSystem enables.
+         Measured at login on this machine: the process that owns
+         `org.freedesktop.Notifications` came up at 20:45:18.254, the patches were installed
+         at 20:45:18.875 — a 621 ms window, and the shell itself activated that process at
+         18.207, so the order is structural rather than a fluke. Anything sent inside the
+         window lands in a native per-pid stack that nothing merges into afterwards, because
+         merging happens at source-resolution time only. Session-start senders (input
+         methods, session components) are exactly the ones that fire into it: one stale stack
+         per login, sitting next to the merged one, same title, forever.
+Change   `disable()`-time adoption: `_adoptExistingSources()` walks the live sources at
+         attach, and for each no-App FDO source whose declared title is groupable, registers
+         it under `app:<normalised title>` and mounts the same per-instance treatment a
+         created source gets. Partially overturns **D-008**, whose override was scoped to
+         "own sources" only, and the AGENTS.md rule that says the same.
+         An adopted stack is **handed back** on disable rather than destroyed — its cards
+         were never ours, so D-011's teardown does not extend to them and the promise
+         "disabling touches nothing native" survives adoption.
+         Two honest limits, both written into the README: the `desktop-entry` hint is gone by
+         the time we look, so the key is rebuilt from the title, which reproduces the
+         `app_name` branch only; and when two stacks declare the same title the first wins,
+         because merging their cards would need re-parenting, which is impossible
+         (`source` is construct-only on `Notification`).
+Evidence L1 three new readings in the throwaway shell: disable → send (native stack) →
+         enable (adopted) → send again lands in **one** stack of two cards; the key is the
+         rebuilt one; and after a further disable the adopted stack is still there with both
+         cards. 51/51 green. L2 the login case itself: the prediction is that the stale
+         stack no longer reappears at the next login.
+Cost     A second call site for the per-instance mount (extracted into `_registerShared()`
+         so the two paths cannot drift), and one more patch surface on an object this
+         extension did not create. Rejected alternative: re-keying or re-parenting existing
+         cards — impossible without patching native `Notification`.
+Commit   84074d3, ff06f7e
+
+### D-034 · 2026-11-05 · revert · v11
+Symptom  `max-per-source` could only be lowered. Native drops the oldest card **inside**
+         `addNotification`, before the push (`messageTray.js:577-580`), so with the cap set
+         above 10 the card is already destroyed by the time this extension trims — and a
+         destroyed notification cannot be handed back. The user asked for a higher ceiling,
+         which D-014/D-015 had refused on the cost of "copying native addNotification".
+Change   Upper bound 10 → **30**, default unchanged at 10. Above 10 only, each stack gets a
+         per-instance `addNotification` override that hands native a short array, calls
+         **native's own body**, then puts the cards back and updates the count. Nothing is
+         duplicated, so upstream changes to the body are inherited; lowering back to 10 or
+         below deletes the own property and the path is pure native again. Overturns the
+         AGENTS.md hard rule that pinned the schema upper bound to the native constant, and
+         the refusal recorded in **D-014** / **D-015**.
+Evidence L1 four new readings: 13 sends at cap=30 keep 13 cards in one stack (native alone
+         keeps 10); the override is an own property above 10 and gone at 10; lowering to the
+         native ceiling trims the live stack in the same beat; `disable()` removes it (read
+         from inside the source's own `destroy` handler). Mutation
+         `cap-above-native-ignored`. 51/51 green.
+Cost     A fourth per-instance patch surface. The array is briefly shorter than it really is
+         while native runs — safe because nothing inside native's `addNotification` awaits
+         and the two emits reach listeners that read the count, not the history. Measured
+         side effect of the same batch: the trim window must not include a `disable()`,
+         because disabling retires cards with DISMISSED, not EXPIRED (see D-035).
+Commit   84074d3, ff06f7e
+
+### D-035 · 2026-11-05 · fix · v11
+Symptom  D-011 recorded, and the README repeated, that cards retired by **disabling** reach
+         the sender as `NotificationClosed` reason 4 (`undefined`), because
+         `FdoNotificationDaemonSource.destroy()` drops the reason argument. It does — and
+         that is not the end of the path: `Source.destroy(reason)` passes its `undefined`
+         along to `Notification.destroy(reason = DISMISSED)` (`messageTray.js:488`,
+         `:596-600`), where the default parameter turns it into DISMISSED.
+Change   Measured, not inferred: a `dbus-monitor` on the harness bus captured 22
+         `NotificationClosed` from one `disable()`, **all reason 2**. The README's and
+         MAINTENANCE's claim corrected to DISMISSED(2); reason 4 stays what the mapping's
+         `default:` branch would emit, but nothing on this path reaches it. No behaviour
+         change, no new patch point — the correction is the whole change.
+Evidence L2 by product: the bus reading above, from a separate observer on the private bus,
+         not an in-process reading. Found while making the harness's trim window honest
+         (D-034), which is the second time this repository's own instrument caught its own
+         documentation.
+Cost     A documented promise withdrawn: senders that special-cased "reason 4 means we were
+         disabled" were never right, and now the record says so.
+Commit   ff06f7e
