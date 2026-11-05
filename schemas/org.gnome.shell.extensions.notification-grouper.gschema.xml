@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <!-- Zero-config defaults: all four keys take the value of "the extension's current behaviour", so
-       it works as installed without touching any key. The max-per-source upper bound of 10 is not an
-       arbitrary number — it is MAX_NOTIFICATIONS_PER_SOURCE in native messageTray.js; this extension
-       only allows tightening below native, never loosening (loosening would mean copying native
-       addNotification, one more fragile patch point, not worth it). -->
+  <!-- Zero-config defaults: every key takes the value of "the extension's current behaviour", so
+       it works as installed without touching any key. max-per-source defaults to native
+       messageTray.js's MAX_NOTIFICATIONS_PER_SOURCE (10) and may be raised to 30: at or below the
+       native ceiling the stack runs pure native code, and only above it does the extension keep
+       native from dropping the oldest card itself. Lowering back to 10 unmounts that again. -->
   <schema id="org.gnome.shell.extensions.notification-grouper"
           path="/org/gnome/shell/extensions/notification-grouper/">
 
@@ -15,10 +15,10 @@
     </key>
 
     <key name="max-per-source" type="i">
-      <range min="1" max="10"/>
+      <range min="1" max="30"/>
       <default>10</default>
       <summary>Cards kept per stack</summary>
-      <description>How many notifications one merged stack keeps before the oldest is dropped. 10 is the GNOME limit; only lower values can be chosen.</description>
+      <description>How many notifications one merged stack keeps before the oldest is dropped. 10 is GNOME's own limit; above it this extension keeps GNOME from dropping the card.</description>
     </key>
 
     <key name="ui-guards" type="b">
@@ -31,6 +31,12 @@
       <default>[]</default>
       <summary>Apps that keep their own stacks</summary>
       <description>App names listed here are never merged, each sender process stays separate. Names are matched after trimming and lower-casing, and a trailing .desktop is ignored.</description>
+    </key>
+
+    <key name="log-fallthrough" type="b">
+      <default>false</default>
+      <summary>Log every notification that was left out of a stack</summary>
+      <description>One journal line per notification that fell through to a stack of its own, naming the reason and the app. Off by default: the extension is otherwise silent between enable and disable, and this is the only way to answer "why did this app not merge" from the field. Never logs a notification body.</description>
     </key>
 
   </schema>

@@ -15,7 +15,7 @@
 // cross-session cleanup obligation; only a changed:: handler **in the shell process** must be
 // disconnectable (see _settingsHids in extension.js).
 //
-// The four keys' defaults equal this extension's zero-config behaviour, so someone who never opens
+// The five keys' defaults equal this extension's zero-config behaviour, so someone who never opens
 // this page sees the same behaviour as before it was installed.
 // UI text is English (consistent with the metadata description and the English README).
 
@@ -27,7 +27,10 @@ import { ExtensionPreferences } from
     'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 const NATIVE_MAX = 10;      // MAX_NOTIFICATIONS_PER_SOURCE in native messageTray.js:25
-const ALL_KEYS = ['grouping-enabled', 'ui-guards', 'max-per-source', 'isolate-apps'];
+const CAP_MAX = 30;         // schema upper bound: above NATIVE_MAX this extension keeps GNOME
+                            // from dropping the oldest card itself
+const ALL_KEYS = ['grouping-enabled', 'ui-guards', 'max-per-source', 'isolate-apps',
+    'log-fallthrough'];
 const BIND = Gio.SettingsBindFlags.DEFAULT |
     Gio.SettingsBindFlags.GET |
     Gio.SettingsBindFlags.SET |
@@ -50,7 +53,24 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
 
         this.#addGrouping(page, settings);
         this.#addExceptions(page, settings);
+        this.#addDiagnosis(page, settings);
         this.#addReset(page, settings);
+    }
+
+    #addDiagnosis(page, settings) {
+        const group = new Adw.PreferencesGroup({
+            title: 'Diagnosis',
+            description: 'What the extension writes to the journal',
+        });
+        page.add(group);
+
+        const fallthrough = new Adw.SwitchRow({
+            title: 'Log notifications left out of a stack',
+            subtitle: 'One journal line per skipped merge, naming the reason and the app. Off by default; turn it on to find out why one app sits in two stacks. Never logs the message text.',
+            active: settings.get_boolean('log-fallthrough'),
+        });
+        settings.bind('log-fallthrough', fallthrough, 'active', BIND);
+        group.add(fallthrough);
     }
 
     #addGrouping(page, settings) {
@@ -78,10 +98,10 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
 
         const cap = new Adw.SpinRow({
             title: 'Cards kept per stack',
-            subtitle: `GNOME already drops the oldest card past ${NATIVE_MAX}. Lower this to keep fewer; it cannot be raised.`,
+            subtitle: `GNOME drops the oldest card past ${NATIVE_MAX} by itself. Up to ${CAP_MAX} this extension stops that; at ${NATIVE_MAX} or below the behaviour is exactly GNOME's.`,
             adjustment: new Gtk.Adjustment({
                 lower: 1,
-                upper: NATIVE_MAX,
+                upper: CAP_MAX,
                 step_increment: 1,
                 page_increment: 1,
                 value: settings.get_int('max-per-source'),
@@ -194,7 +214,7 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
 
         const row = new Adw.ActionRow({
             title: 'Restore every default',
-            subtitle: 'Grouping on, bug workarounds on, GNOME cap of 10, no exceptions',
+            subtitle: 'Grouping on, bug workarounds on, GNOME cap of 10, no exceptions, no fall-through log',
         });
         const btn = new Gtk.Button({
             label: 'Reset',

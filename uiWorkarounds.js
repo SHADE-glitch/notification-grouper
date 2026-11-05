@@ -128,8 +128,8 @@ export async function attach({ ownsSource, log, onError, alive }) {
     };
 
     // Workaround 2 — NotificationMessageGroup.collapse() (messageList.js:988, async):
-    // if forEach at :992 throws, :998's _expanded=false and :1000's _cover.show() never run, so the
-    // group stays half-collapsed forever and every later click is swallowed by native :1114-1119's
+    // if forEach at :992 throws, :998-:1008 never run, so the group stays half-collapsed
+    // forever and every later click is swallowed by native :1114-1119's
     // if (!this.expanded) — what the user sees as "the notification area is stuck, clicks do nothing".
     // Here we catch the throw and land the state, without changing semantics.
     const origCollapse = _origUi.collapse;
@@ -139,9 +139,17 @@ export async function attach({ ownsSource, log, onError, alive }) {
         } catch (e) {
             _onError(e, 'NotificationMessageGroup.collapse() threw');
             try {
+                // Every step native runs after the loop (:998-:1008), in native's order,
+                // minus the animation: native hides _headerBox only when the ease at
+                // :1003 finishes, and that ease never starts here — leaving it visible
+                // over a collapsed group is a state the animation was supposed to retire.
+                // _updateStackedMessagesFade is not cosmetic either: it rewrites the
+                // stack pseudo-classes, and a stale set mislabels the top card.
                 this._expanded = false;
                 this.notify('expanded');
                 this._cover?.show();
+                this._updateStackedMessagesFade?.();
+                this._headerBox?.hide();
             } catch {
                 /* group already disposed */
             }

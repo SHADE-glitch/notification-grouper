@@ -18,27 +18,45 @@
 //  3. When creating a shared Source, override its open(): native open() calls
 //     destroyNonResidentNotifications(), which empties the whole source — a native source holds
 //     roughly one card, but a merged source holds a whole group, so clicking one card wipes the
-//     group. The override keeps only openApp() (a no-op here since this source's app is always
-//     null), and the clicked card is still destroyed by Notification.activate() itself. Native
-//     sources are never touched and are restored on disable.
+//     group. The override keeps openApp() and drops the mass destroy; the clicked card is still
+//     destroyed by Notification.activate() itself. It also adds the one thing openApp() cannot do
+//     on this path: openApp() returns before its closeCalendar() when the source has no app, and
+//     a merged source never has one, so clicking the last card of a stack now closes the page the
+//     way an app-backed click does. Native sources are never touched and are restored on disable.
+//
+//  4. When max-per-source is raised above native's ceiling, override addNotification on those
+//     stacks only. Native drops the oldest card inside addNotification, before the push
+//     (messageTray.js:577-580), so trimming afterwards cannot reach past 10 — that card is
+//     already destroyed. The override hands native a short stack, runs native's own body, then
+//     puts the cards back; nothing is reimplemented, so upstream changes are inherited. At or
+//     below 10 nothing is mounted and the path stays pure native.
+//
+//  5. At attach, adopt the no-App stacks that already exist. The daemon answers Notify before
+//     ExtensionSystem enables — measured at login, 621 ms — so a session-start sender otherwise
+//     keeps a stack of its own that nothing merges into afterwards. An adopted stack gets the
+//     same open()/cap treatment as a created one, and disable() hands it back instead of
+//     destroying it: its cards were never ours.
 //
 // Coverage: every source that resolves to no App (the _getSourceForPidAndName path) — sources
 // that have an app_name but no App. Native creates a new Source for every new pid; this extension
 // merges them into one shared Source by normalised app_name, which is what "group by the sending
 // app" means.
 //
-// UI, icons and the cap all stay native: _appName/_appIcon are not overridden and no button is
-// injected. The only UI behaviour differences are item 3 above (a self-created source's open() no
-// longer mass-clears) and the close workaround below, both of which act only on the merged sources
-// this extension creates. On disable we restore the two daemon patches, the self-created sources'
-// open() overrides and the three UI workarounds, disconnect every per-source signal, and
-// **destroy the merged sources this extension created** (the watch_name and policy they hold are
-// released only in destroy(), and leaving them alive would let the restored native open()
-// mass-clear the whole group again) — so disabling undoes every piece of state this extension
-// produced.
+// UI and icons stay native: _appName/_appIcon are not overridden and no button is injected. The
+// cap is native's own at and below 10 and is kept by this extension only above it (item 4). The
+// behaviour differences are item 3 (open() no longer mass-clears, and closes the page on the last
+// card), item 5 (adopted stacks), and the close workaround below — all of them acting only on the
+// stacks this extension serves. On disable we restore the two daemon patches, every per-instance
+// override (open() and addNotification) and the three UI workarounds, disconnect every per-source
+// signal, and **destroy the merged sources this extension created** (the watch_name and policy
+// they hold are released only in destroy(), and leaving them alive would let the restored native
+// open() mass-clear the whole group again) — so disabling undoes every piece of state this
+// extension produced.
 //
 // Logging: quiet by default — one line each for enable/attach/disable; no per-notify logging and
-// never the body.
+// never the body. The one exception is the `log-fallthrough` switch, whose entire job is to record
+// the notifications that were left out of a stack; it is off by default and logs one line per
+// skipped notification (branch + app name, never a body).
 //
 // The UI workarounds live in uiWorkarounds.js: GNOME 50's native messageList.js has three
 // behaviours that trap an N-card merged group (a collapse race ×2, and closing one card escalating
@@ -53,16 +71,19 @@ import { NotificationDestroyedReason } from 'resource:///org/gnome/shell/ui/mess
 import { computeGroup, checkAttachPoints, normalizeIsolate } from './groupEngine.js';
 import * as UiWorkarounds from './uiWorkarounds.js';
 
-// Native per-source cap. The upper bound of max-per-source in the schema must equal it —
-// going past 10 would mean copying native addNotification (destroy the old entry + two
-// connects + push + countUpdated), which adds one more fragile patch point.
+// Native per-source cap. `max-per-source` may be set ABOVE it, and the default IS this number:
+// at or below 10 the stack runs pure native code and nothing extra is mounted. Above it, native's
+// own drop (messageTray.js:577-580, inside addNotification, before the push) has to be kept from
+// firing — see _applyCapOverride(), which is the fourth and only per-instance patch surface.
 const NATIVE_MAX_PER_SOURCE = 10;
 
 const LOG_PREFIX = '[notification-grouper]';
 
 export default class NotificationGrouperExtension extends Extension {
     _enabled = false;
-    /** groupKey -> {source, hid, origOpen, patchedOpen} (shared-Source cache; self-clears on destroy) */
+    /** groupKey -> {source, hid, origOpen, patchedOpen, origAdd, patchedAdd, adopted}
+     *  (shared-Stack cache; self-clears on destroy. `adopted` = native created it, see
+     *  _adoptExistingSources: disable() hands those back instead of destroying them) */
     _shared = new Map();
     /** the set of merged Sources this extension created: the UI workarounds use it to tell "this card belongs to this extension" */
     _ownSources = new Set();
@@ -79,6 +100,8 @@ export default class NotificationGrouperExtension extends Extension {
     _uiGuardsEnabled = true;
     _maxPerSource = NATIVE_MAX_PER_SOURCE;
     _isolated = new Set();
+    /** the fall-through diagnostic: off by default, and the only switch that logs per notification */
+    _logFallthrough = false;
 
     enable() {
         this._enabled = true;
@@ -122,6 +145,15 @@ export default class NotificationGrouperExtension extends Extension {
             } catch {
                 /* source already disposed */
             }
+            // And the cap override with it. Deleting the own property is the restore here:
+            // addNotification lives on the prototype, so an own property is the whole patch.
+            try {
+                if (rec.patchedAdd && rec.source.addNotification === rec.patchedAdd)
+                    delete rec.source.addNotification;
+            } catch {
+                /* source already disposed */
+            }
+            rec.patchedAdd = null;
             // A source this extension created must not outlive disable(). It holds a
             // Gio.DBus.watch_name subscription and a NotificationPolicy, both released only in
             // Source.destroy() (messageTray.js:597-609: policy.destroy() + run_dispose()); more
@@ -130,10 +162,18 @@ export default class NotificationGrouperExtension extends Extension {
             // card, wipe the group" comes back after disabling. If rec is still in the table
             // here, this source was never destroyed (a destroy self-clears the record through
             // rec.hid), so there is no double destroy.
-            try {
-                rec.source.destroy();
-            } catch {
-                /* source already disposed */
+            //
+            // An ADOPTED source is the other half of that promise: its cards were not ours, so
+            // retiring them here would break "disabling touches nothing native". It is handed
+            // back instead — open() restored above, signal disconnected above, and native owns
+            // it again, exactly as before enable(). The mass-destroy behaviour it comes back to
+            // is native's own and only ever costs it the one card it holds.
+            if (!rec.adopted) {
+                try {
+                    rec.source.destroy();
+                } catch {
+                    /* source already disposed */
+                }
             }
         }
         this._shared.clear();
@@ -203,11 +243,19 @@ export default class NotificationGrouperExtension extends Extension {
             }),
             s.connect('changed::max-per-source', () => {
                 this._maxPerSource = s.get_int('max-per-source');
-                // There is no "next" notification to make room for, so trim the existing stack to the cap itself (not cap-1)
-                for (const [, rec] of this._shared)
+                // Mount/unmount the above-native override first, then trim: raising the cap must
+                // not evict anything, lowering it must shrink the live stacks at once. There is
+                // no "next" notification to make room for, so trim to the cap itself (not cap-1).
+                for (const [, rec] of this._shared) {
+                    this._applyCapOverride(rec);
                     this._evictTo(rec.source, this._maxPerSource);
+                }
             }),
             s.connect('changed::isolate-apps', () => this._readSettings()),
+            s.connect('changed::log-fallthrough', () => {
+                this._logFallthrough = s.get_boolean('log-fallthrough');
+                log(`${LOG_PREFIX} fall-through logging ${this._logFallthrough ? 'on' : 'off'}`);
+            }),
         ];
     }
 
@@ -217,6 +265,7 @@ export default class NotificationGrouperExtension extends Extension {
         this._uiGuardsEnabled = s.get_boolean('ui-guards');
         this._maxPerSource = s.get_int('max-per-source');
         this._isolated = normalizeIsolate(s.get_strv('isolate-apps'));
+        this._logFallthrough = s.get_boolean('log-fallthrough');
     }
 
     _teardownSettings() {
@@ -362,8 +411,16 @@ export default class NotificationGrouperExtension extends Extension {
         fdo._getSourceForPidAndName = function (sender, pid, appName) {
             const pend = self._pending;
             // No stash, or an empty app_name: fall through to native, isolated by pid.
-            if (!pend || !pend.res.mergeable)
+            // These are the two SILENT branches — the guards below report themselves. From
+            // the outside nothing records that a merge was skipped, which is why "why is
+            // this app not in a stack" cannot be answered from a journal; when the
+            // diagnostic switch is on, name the branch and the app (never the body).
+            if (!pend || !pend.res.mergeable) {
+                if (self._logFallthrough)
+                    log(`${LOG_PREFIX} fall-through branch=${pend ? 'not-mergeable' : 'no-stash'} ` +
+                        `app=${JSON.stringify(appName)}`);
                 return self._orig.getSource.call(this, sender, pid, appName);
+            }
             // Defensive: the stashed pid differs from this call's pid -> the synchronous
             // assumption was broken by a distro patch (NotifyAsync gained an await/re-entry).
             // Fall to the safe side: native fall-through + a one-line warning.
@@ -394,53 +451,174 @@ export default class NotificationGrouperExtension extends Extension {
                 return rec.source;
             }
             const source = self._orig.getSource.call(this, sender, pid, appName);
-
-            // Third mount point (independent of the grouping patches and degrading on its own): a
-            // merged source has no app (native passes null on this path), so native
-            // Source.open() = openApp() (a no-op for a null app, and it does not close the calendar
-            // either) + destroyNonResidentNotifications(), the latter wiping every non-resident
-            // notification in the **whole shared source**. A native source holds roughly one
-            // sender, so usually only one card is wiped; merging widens the scope to the whole
-            // group — the user sees "click one card -> blank area -> the whole group disappears".
-            // Here we keep only the "open the app" half and drop the mass destroy; the clicked card
-            // is still destroyed by Notification.activate()'s subsequent destroy(), so clicking any
-            // card deletes only that card.
-            let origOpen = null;
-            let patchedOpen = null;
-            const rawOpen = source.open;
-            if (typeof rawOpen === 'function') {
-                origOpen = rawOpen;
-                patchedOpen = function () {
-                    if (typeof this.openApp === 'function')
-                        return this.openApp();
-                };
-                source.open = patchedOpen;
-            } else {
-                self._warnOnce('source-open-missing',
-                    'FdoNotificationDaemonSource.open is unavailable, so clicking one card will still wipe the whole group (please report)');
-            }
-
-            self._ownSources.add(source);
-            // Self-clearing on destroy: delete only if the cache still holds this source (so a
-            // delayed destroy of an old source cannot delete a new source with the same key).
-            const hid = source.connect('destroy', () => {
-                const cur = self._shared.get(key);
-                if (cur && cur.source === source) {
-                    self._shared.delete(key);
-                    self._ownSources.delete(source);
-                }
-            });
-            self._shared.set(key, { source, hid, origOpen, patchedOpen });
-            // Same for a newly created source: the trim is not done here; after recording, it is left to the post-push block.
+            self._registerShared(key, source, false);
+            // The trim is not done here: after recording, it is left to the post-push block.
             pend.servedSource = source;
             return source;
         };
+
+        this._adoptExistingSources();
 
         this._appliedPatches = check.patches;
         log(`${LOG_PREFIX} enabled, attached patches: ${this._appliedPatches.join(', ')}`);
 
         // Only discuss the workarounds once grouping is mounted (they degrade independently but never exist alone on an inert instance).
         this._mountUiGuards();
+    }
+
+    /**
+     * Take a source over as the shared stack for `key`: the per-instance open() override,
+     * the membership set the close workaround reads, and the self-clearing cache entry.
+     *
+     * Both call sites go through here on purpose — an adopted source has to behave exactly
+     * like a created one, and two copies of that mount sequence is how the two paths drift.
+     *
+     * @param {string} key    the group key
+     * @param {object} source a source with no App (the path this extension owns)
+     * @param {boolean} adopted true when native already created it (see _adoptExistingSources)
+     */
+    _registerShared(key, source, adopted) {
+        // Third mount point (independent of the grouping patches and degrading on its own): a
+        // merged source has no app (native passes null on this path), so native
+        // Source.open() = openApp() + destroyNonResidentNotifications(), the latter wiping every
+        // non-resident notification in the **whole shared source**. A native source holds roughly
+        // one sender, so usually only one card is wiped; merging widens the scope to the whole
+        // group — the user sees "click one card -> blank area -> the whole group disappears".
+        // Here we keep the "open the app" half and drop the mass destroy; the clicked card is
+        // still destroyed by Notification.activate()'s own destroy(), so clicking any card
+        // deletes only that card. The kept half is then extended by the calendar close that
+        // native performs only for a source that has an app — see the override below.
+        let origOpen = null;
+        let patchedOpen = null;
+        const rawOpen = source.open;
+        if (typeof rawOpen === 'function') {
+            origOpen = rawOpen;
+            patchedOpen = function () {
+                if (typeof this.openApp === 'function')
+                    this.openApp();
+                // openApp() returns at its first line when this.app is null
+                // (notificationDaemon.js:375-382), and a merged source always has a null app —
+                // that is what defines the path this extension handles. So a click on a card
+                // with nowhere to jump removed the card and left the list open, which reads as
+                // "nothing happened". Once the stack is down to the card being clicked there is
+                // nothing left to keep the page for, so close it the way an app-backed click
+                // does. Read before activate() destroys the clicked notification: length 1 here
+                // means "this is the last one".
+                if (this.notifications.length <= 1)
+                    Main.panel.closeCalendar();
+            };
+            source.open = patchedOpen;
+        } else {
+            this._warnOnce('source-open-missing',
+                'FdoNotificationDaemonSource.open is unavailable, so clicking one card will still wipe the whole group (please report)');
+        }
+
+        this._ownSources.add(source);
+        // Self-clearing on destroy: delete only if the cache still holds this source (so a
+        // delayed destroy of an old source cannot delete a new source with the same key).
+        const hid = source.connect('destroy', () => {
+            const cur = this._shared.get(key);
+            if (cur && cur.source === source) {
+                this._shared.delete(key);
+                this._ownSources.delete(source);
+            }
+        });
+        this._shared.set(key, {
+            source, hid, origOpen, patchedOpen, adopted,
+            origAdd: null, patchedAdd: null,
+        });
+        this._applyCapOverride(this._shared.get(key));
+    }
+
+    /**
+     * Mount or unmount the per-instance addNotification override on one stack, according to the
+     * current cap. At or below native's own ceiling NOTHING is mounted: the untouched path stays
+     * 100% native code, which is what the default settings promise.
+     *
+     * Why an override is needed at all: native drops the oldest card inside addNotification,
+     * before the push (messageTray.js:577-580), so a cap above 10 can never be reached by
+     * trimming afterwards — the card is already destroyed and cannot be handed back. The fix is
+     * not to reimplement addNotification (two connects, two emits and countUpdated would drift
+     * the moment upstream touches it) but to keep native from seeing the cards it would drop,
+     * run native's own body, and put them back.
+     *
+     * The window where the array is short is closed: nothing inside addNotification awaits, and
+     * the two emits reach only listeners that read the stack's count, not its history.
+     */
+    _applyCapOverride(rec) {
+        const want = this._maxPerSource > NATIVE_MAX_PER_SOURCE;
+        if (want === !!rec.patchedAdd)
+            return;
+
+        if (!want) {
+            if (rec.source.addNotification === rec.patchedAdd)
+                delete rec.source.addNotification;
+            rec.patchedAdd = null;
+            rec.origAdd = null;
+            return;
+        }
+
+        rec.origAdd = rec.source.addNotification;
+        rec.patchedAdd = function (notification) {
+            // Hand back exactly enough that native's `while (length >= 10)` sees one below its
+            // ceiling; the trim to the user's cap is not done here, it stays in the NotifyAsync
+            // wrapper after the push (one place that owns trimming).
+            const aboveNative = this.notifications.length - NATIVE_MAX_PER_SOURCE + 1;
+            const held = aboveNative > 0
+                ? this.notifications.splice(0, aboveNative)
+                : null;
+            rec.origAdd.call(this, notification);
+            if (held) {
+                this.notifications.unshift(...held);
+                this.countUpdated();
+            }
+        };
+        rec.source.addNotification = rec.patchedAdd;
+    }
+
+    /**
+     * Adopt the stacks that already existed when this extension attached.
+     *
+     * Why this is needed: the notification daemon is exported and reachable **before**
+     * ExtensionSystem gets round to enable(). Measured at login on this machine — the process
+     * that owns org.freedesktop.Notifications came up at 20:45:18.254 and the patches were
+     * installed at 20:45:18.875, a 621 ms window. Anything sent in it lands in a native
+     * per-pid source and is never merged afterwards, because merging happens at
+     * source-resolution time and that moment has passed. Session-start senders are exactly
+     * the ones that fire into the window (input methods, session components), which is why
+     * the same app sits in the list twice — one stack per login, forever.
+     *
+     * Adoption is the only remedy that does not touch the cards: a source cannot be re-keyed,
+     * and a notification cannot be re-parented (`source` is construct-only). So we take over
+     * what native already made — register it under the key its own cards declare, mount the
+     * same open() override, and let the next notification find it.
+     *
+     * Two honest limits: computeGroup's desktop-entry hint is gone by the time we look, so the
+     * key is rebuilt from the source's declared title, which reproduces the app_name branch
+     * only; and when two sources declare the same title the first one wins, because merging
+     * their cards would need the re-parenting above.
+     */
+    _adoptExistingSources() {
+        if (!this._groupingEnabled)
+            return;
+        let adopted = 0;
+        for (const source of Main.messageTray.getSources()) {
+            // Only the FDO backend's own no-app sources: an app-backed source is already
+            // stacked by App, and the Gtk backend's source has a different shape.
+            if (!source || source.app || typeof source.processNotification !== 'function')
+                continue;
+            const res = computeGroup({
+                appName: source.title,
+                enabled: true,
+                isolated: this._isolated,
+            });
+            if (!res.mergeable || this._shared.has(res.groupKey))
+                continue;
+            this._registerShared(res.groupKey, source, true);
+            adopted++;
+        }
+        if (adopted > 0)
+            log(`${LOG_PREFIX} adopted ${adopted} stack(s) that arrived before enable()`);
     }
 
     _warnOnce(key, msg) {
