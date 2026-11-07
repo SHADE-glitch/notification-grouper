@@ -29,6 +29,25 @@ GNOME 50. Works out of the box — the defaults are the whole point, so you neve
 to configure anything. Four plain switches exist for when you do want to change
 behaviour; there is no rules file and no config format to learn.
 
+---
+
+## 📖 Table of Contents
+
+- [📖 About](#-about)
+- [❓ The problem](#-the-problem)
+- [🚫 What it does not do](#-what-it-does-not-do)
+- [🔬 How it works](#-how-it-works)
+- [📥 Installation](#-installation)
+- [⚙️ Settings](#️-settings)
+- [🧩 Compatibility](#-compatibility)
+- [🔒 Privacy](#-privacy)
+- [🧪 Testing](#-testing)
+- [🔨 Development](#-development)
+- [🩹 Workaround for a GNOME 50 notification-list defect](#-workaround-for-a-gnome-50-notification-list-defect)
+- [⚠️ Known limitations](#️-known-limitations)
+- [🤝 Contributing](#-contributing)
+- [⚖️ License](#️-license)
+
 ## 📖 About
 
 An **original extension** by **SHADE-glitch** — not a fork, with no upstream
@@ -73,14 +92,14 @@ Read this before opening an issue — several of these are deliberate.
 - **No rules engine.** Per-app branches, rule files and title patterns were all removed
   from the grouping logic; the engine contains no application name at all. Grouping is a
   pure function of the identity the sender declares. What remains configurable is four
-  switches ([Settings](#settings)), none of which re-introduces matching: the only list
+  switches ([Settings](️-settings)), none of which re-introduces matching: the only list
   you can fill is a set of application names to leave alone.
 - **The stack size cap does not re-implement GNOME's trimming.** GNOME keeps at most
   10 notifications per source (`messageTray.js:25`, oldest destroyed synchronously at
   `:577-580`). `max-per-source` goes 1..30 and ships at **20**: above 10 the extension only
   keeps GNOME from firing, and GNOME's own `addNotification` still does the work; at 10 or
   below nothing extra is mounted and that native rule is the whole story again. See
-  [Known limitations](#known-limitations) for what merging does to that cap.
+  [Known limitations](️-known-limitations) for what merging does to that cap.
 - **No UI of its own.** Icons, titles, banners and urgency are all left to GNOME. The
   extension injects no buttons and overrides no headers. The only click-behaviour
   differences are the two narrow ones described under
@@ -103,7 +122,7 @@ extension stays completely inert and logs one warning — it never half-attaches
 On top of those two, every stack this extension serves gets **per-instance** overrides and
 nothing else: `open()` (below) and, only when the cap is raised past GNOME's own,
 `addNotification`. Stacks that already exist when the extension attaches are adopted into
-the same treatment — [Known limitations](#known-limitations) says why, and what adoption
+the same treatment — [Known limitations](️-known-limitations) says why, and what adoption
 still cannot fix.
 
 ### Click behaviour of the merged source
@@ -130,7 +149,7 @@ card", again only for collapsed groups whose source it created.
 
 Both are strictly scoped to stacks this extension creates; native sources and expanded
 groups keep native behaviour. See [Click behaviour to expect](#click-behaviour-to-expect-native-not-configurable)
-and [Known limitations](#known-limitations).
+and [Known limitations](️-known-limitations).
 
 The stash is a single slot, which is safe because the shell-side `NotifyAsync`
 is a plain synchronous method — there is no `await` between reading the hints
@@ -152,7 +171,7 @@ notification policy that are only released by `Source.destroy()`
 the source alive would put "click one card, lose the whole group" back on the table —
 after disabling. An adopted source is different: its cards were never this extension's, so
 retiring them would break "disabling touches nothing native", and it is simply returned to
-native ownership. See [Known limitations](#known-limitations).
+native ownership. See [Known limitations](️-known-limitations).
 
 ### Group key
 
@@ -168,6 +187,39 @@ Normalisation is: trim, lowercase, strip a trailing `.desktop`. So `Foo`,
 The hot path is a pure function with no regex, no file IO and no timers.
 
 <a name="settings"></a>
+
+## 📥 Installation
+
+Requires GNOME Shell 50 on Ubuntu (verified on Ubuntu 26.04 with GNOME Shell
+50.1). No build step and no dependencies beyond `git`.
+
+```sh
+# 1. clone straight into the extensions directory
+git clone https://github.com/SHADE-glitch/notification-grouper.git \
+  ~/.local/share/gnome-shell/extensions/notification-grouper@local
+
+# 2. enable it
+gnome-extensions enable notification-grouper@local
+```
+
+You can also enable it from the **Extensions** app.
+
+**Log out and back in** — that is the reliable way to load a freshly cloned
+extension. Toggling it off and on does **not** reload edited JavaScript: the
+shell caches ES modules per process, so verifying a code change needs a shell
+restart. (Settings are different — they apply live, see
+[Settings](️-settings).)
+
+The compiled schema (`schemas/gschemas.compiled`) is committed, so there is
+nothing to generate after cloning; GNOME 50 no longer compiles schemas shipped
+by extensions.
+
+### Uninstall
+
+```sh
+gnome-extensions disable notification-grouper@local
+rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
+```
 
 ## ⚙️ Settings
 
@@ -249,38 +301,18 @@ Upstream renamed something — please open an issue with this line:
   thing it reads per notification is the sender-declared identity already present
   in it.
 
-## 📥 Install
+## 🧪 Testing
 
-Requires GNOME Shell 50 on Ubuntu (verified on Ubuntu 26.04 with GNOME Shell
-50.1). No build step and no dependencies beyond `git`.
+`npm test` is the offline gate and needs no shell: the engine unit tests
+(`tests/test-groupEngine.mjs`) plus the repository guards (`tests/repo.test.mjs` — bilingual
+doc pair, zero-timer grep, patch-point ownership, no-Gtk-in-shell-process, records free of
+application names, `reports/` untracked). `npm run check` and `npm run check:prefs` are the
+static and gjs checks; `npm run check:log` gates the CHANGELOG coverage.
 
-```sh
-# 1. clone straight into the extensions directory
-git clone https://github.com/SHADE-glitch/notification-grouper.git \
-  ~/.local/share/gnome-shell/extensions/notification-grouper@local
-
-# 2. enable it
-gnome-extensions enable notification-grouper@local
-```
-
-You can also enable it from the **Extensions** app.
-
-**Log out and back in** — that is the reliable way to load a freshly cloned
-extension. Toggling it off and on does **not** reload edited JavaScript: the
-shell caches ES modules per process, so verifying a code change needs a shell
-restart. (Settings are different — they apply live, see
-[Settings](#settings).)
-
-The compiled schema (`schemas/gschemas.compiled`) is committed, so there is
-nothing to generate after cloning; GNOME 50 no longer compiles schemas shipped
-by extensions.
-
-### Uninstall
-
-```sh
-gnome-extensions disable notification-grouper@local
-rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
-```
+The runtime harnesses boot a private GNOME Shell and are deliberately **not** run in CI:
+`npm run verify:headless`, `npm run verify:ui-guard` and `npm run verify:provoke` (see
+[Development](#-development) for what each proves). Each command prints its own count, which
+is never copied into this file.
 
 ## 🔨 Development
 
@@ -330,19 +362,6 @@ real notifications. Bodies are emptied, D-Bus bus names replaced with placeholde
 application names replaced with generic ones; sender pids are kept, because "every
 invocation has a different pid" is the premise the whole extension rests on and the
 fixtures are the evidence for it.
-
-## 🧪 Testing
-
-`npm test` is the offline gate and needs no shell: the engine unit tests
-(`tests/test-groupEngine.mjs`) plus the repository guards (`tests/repo.test.mjs` — bilingual
-doc pair, zero-timer grep, patch-point ownership, no-Gtk-in-shell-process, records free of
-application names, `reports/` untracked). `npm run check` and `npm run check:prefs` are the
-static and gjs checks; `npm run check:log` gates the CHANGELOG coverage.
-
-The runtime harnesses boot a private GNOME Shell and are deliberately **not** run in CI:
-`npm run verify:headless`, `npm run verify:ui-guard` and `npm run verify:provoke` (see
-[Development](#-development) for what each proves). Each command prints its own count, which
-is never copied into this file.
 
 ## 🩹 Workaround for a GNOME 50 notification-list defect
 
@@ -409,7 +428,7 @@ defects** switch turns them off at runtime if you want to compare against stock 
   closes, so the click is not mistaken for nothing having happened.
 - **Clicking one card's close button now closes just that card**, in a collapsed merged
   group too (native would have closed the whole group there). Nothing closes a whole stack
-  in one click — see [Known limitations](#known-limitations).
+  in one click — see [Known limitations](️-known-limitations).
 
 <a name="known-limitations"></a>
 

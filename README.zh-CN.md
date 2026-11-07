@@ -27,6 +27,25 @@
 GNOME 50。开箱即用——默认值就是全部设计意图，你不必配置任何东西。真想改行为时有五个
 白话开关；没有规则文件，也没有需要学习的配置格式。
 
+---
+
+## 📖 目录
+
+- [📖 项目说明](#-项目说明)
+- [❓ 要解决的问题](#-要解决的问题)
+- [🚫 它不做什么](#-它不做什么)
+- [🔬 工作原理](#-工作原理)
+- [📥 安装步骤](#-安装步骤)
+- [⚙️ 设置](#️-设置)
+- [🧩 兼容性](#-兼容性)
+- [🔒 隐私](#-隐私)
+- [🧪 测试](#-测试)
+- [🔨 开发](#-开发)
+- [🩹 对 GNOME 50 通知列表缺陷的兜底](#-对-gnome-50-通知列表缺陷的兜底)
+- [⚠️ 已知限制](#️-已知限制)
+- [🤝 参与贡献](#-参与贡献)
+- [⚖️ 许可证](#️-许可证)
+
 ## 📖 项目说明
 
 **SHADE-glitch** 的**原创扩展**，不是分支，没有需要署名的上游项目。为 GNOME Shell
@@ -58,13 +77,13 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
   一个栈。想区分就给发送方一个独立的 `--app-name`（或 `desktop-entry` hint）。
 - **没有规则引擎。** 分组逻辑里的按应用分支、规则文件、标题模式全部删除；引擎不含任何
   应用名。分组完全是"发送方声明的身份"的纯函数。还能配的只有五项设置
-  （[设置](#settings)）——三个开关、一个上限、一份名单——它们都不会把匹配能力带回来：
+  （[设置](️-设置)）——三个开关、一个上限、一份名单——它们都不会把匹配能力带回来：
   唯一能填的表就是"这些名字别合并"。
 - **每堆卡片数这件事不重写原生的裁剪逻辑。** GNOME 每个来源最多留 10 条
   （`messageTray.js:25`，超出后在 `:577-580` 同步销毁最旧那条）。`max-per-source` 的范围是
   1..30，默认 **20**：超过 10 时本扩展只负责让原生那一下别落下来，真正干活的仍是原生
   `addNotification`；调到 10 及以下就不再挂载任何东西，那套原生规则重新成为全部。
-  合并对这个上限的影响见[已知限制](#known-limitations)。
+  合并对这个上限的影响见[已知限制](️-已知限制)。
 - **不改 UI。** 图标、标题、横幅、紧急度全部交给 GNOME。本扩展不注入按钮，也不覆盖栈头。
   唯一的点击行为差异是下面["你应该预期的点击行为"]
   (#你应该预期的点击行为原生决定不可配置)里那两处窄例外——都**只作用于本扩展服务的栈**。
@@ -83,7 +102,7 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 在这两个之外，本扩展服务的每个栈只多两处**按实例**覆盖，别的都不动：`open()`（见下）；
 以及仅当上限调到超过 GNOME 自己那个数时的 `addNotification`。挂载时已经存在的栈会被
 **收养**进同一套处理——为什么需要收养、以及收养仍修不掉什么，见
-[已知限制](#known-limitations)。
+[已知限制](️-已知限制)。
 
 ### 合并来源的点击行为
 
@@ -103,7 +122,7 @@ GNOME 的 Freedesktop.org 通知后端按 `pid + app_name` 缓存来源。对长
 本扩展创建的组生效。
 
 两处都严格限定于本扩展创建的栈；原生来源与展开态的组保持原生行为。详见
-["你应该预期的点击行为"](#你应该预期的点击行为原生决定不可配置)与[已知限制](#known-limitations)。
+["你应该预期的点击行为"](#你应该预期的点击行为原生决定不可配置)与[已知限制](️-已知限制)。
 
 暂存只有一个槽位，这是安全的，因为 shell 侧的 `NotifyAsync` 是纯同步方法——读 hints
 和解析来源之间没有 `await`，且该连接上的 D-Bus 分发不可重入。为防止这个假设被下游
@@ -117,7 +136,7 @@ handler、清空缓存，**销毁本扩展自建的合并来源**，并把**收�
 不是收尾洁癖：这种来源持有的是一个 D-Bus
 名字订阅加一个通知策略，两者只有 `Source.destroy()` 才释放（`messageTray.js:597-609`）；
 更关键的是 `open()` 还原成原生版本之后再留着它，"点一张卡丢掉整组"就会回到"禁用之后"。
-所以禁用即撤销本扩展造成的全部状态，详见[已知限制](#known-limitations)。
+所以禁用即撤销本扩展造成的全部状态，详见[已知限制](️-已知限制)。
 
 ### 分组键
 
@@ -133,6 +152,36 @@ handler、清空缓存，**销毁本扩展自建的合并来源**，并把**收�
 热路径是纯函数，无正则、无文件 IO、无定时器。
 
 <a name="settings"></a>
+
+## 📥 安装步骤
+
+需要 Ubuntu 上的 GNOME Shell 50（已在 Ubuntu 26.04 + GNOME Shell 50.1 验证）。
+无构建步骤，除 `git` 外无依赖。
+
+```sh
+# 1. 直接克隆进扩展目录
+git clone https://github.com/SHADE-glitch/notification-grouper.git \
+  ~/.local/share/gnome-shell/extensions/notification-grouper@local
+
+# 2. 启用
+gnome-extensions enable notification-grouper@local
+```
+
+也可以在**扩展**（Extensions）应用里启用。
+
+**注销再登录**——这是加载新克隆扩展的可靠方式。开关一次**不会**重新加载改动过的
+JavaScript：shell 按进程缓存 ES 模块，所以验证代码改动需要重启 shell。（设置不是代码，
+它们是即时生效的，见[设置](️-设置)。）
+
+编译产物 `schemas/gschemas.compiled` 已随仓库提交，所以克隆后**什么都不用生成**；GNOME 50
+不再替扩展自动编译 schema。
+
+### 卸载
+
+```sh
+gnome-extensions disable notification-grouper@local
+rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
+```
 
 ## ⚙️ 设置
 
@@ -201,35 +250,16 @@ journalctl --user -b | grep notification-grouper
   不留任何状态——卸载或 `dconf reset` 就干净了。每条通知里唯一读取的就是发送方本来就声明的
   身份。
 
-## 📥 安装
+## 🧪 测试
 
-需要 Ubuntu 上的 GNOME Shell 50（已在 Ubuntu 26.04 + GNOME Shell 50.1 验证）。
-无构建步骤，除 `git` 外无依赖。
+`npm test` 是离线门，不需要 shell：引擎单测（`tests/test-groupEngine.mjs`）加仓库级守卫
+（`tests/repo.test.mjs` —— 中英文档成对、零定时器 grep、挂载点归属、shell 进程内无 Gtk、
+记录不含应用名、`reports/` 未被跟踪）。`npm run check` 与 `npm run check:prefs` 是静态与
+gjs 检查；`npm run check:log` 是 CHANGELOG 覆盖率门。
 
-```sh
-# 1. 直接克隆进扩展目录
-git clone https://github.com/SHADE-glitch/notification-grouper.git \
-  ~/.local/share/gnome-shell/extensions/notification-grouper@local
-
-# 2. 启用
-gnome-extensions enable notification-grouper@local
-```
-
-也可以在**扩展**（Extensions）应用里启用。
-
-**注销再登录**——这是加载新克隆扩展的可靠方式。开关一次**不会**重新加载改动过的
-JavaScript：shell 按进程缓存 ES 模块，所以验证代码改动需要重启 shell。（设置不是代码，
-它们是即时生效的，见[设置](#settings)。）
-
-编译产物 `schemas/gschemas.compiled` 已随仓库提交，所以克隆后**什么都不用生成**；GNOME 50
-不再替扩展自动编译 schema。
-
-### 卸载
-
-```sh
-gnome-extensions disable notification-grouper@local
-rm -rf ~/.local/share/gnome-shell/extensions/notification-grouper@local
-```
+运行时 harness 会起一个私有 GNOME Shell，**刻意不进 CI**：`npm run verify:headless`、
+`npm run verify:ui-guard`、`npm run verify:provoke`（各自证明什么见
+[开发](#-开发)）。每条命令各自打印自己的条数，本文不抄写。
 
 ## 🔨 开发
 
@@ -272,17 +302,6 @@ harness 里也记下了那些实测才踩得到的坑：GNOME 50 拒绝符号链
 `tests/fixtures/` 下的 JSON fixture 是用 `dbus-monitor` 从真实通知抓的。正文已清空、
 D-Bus 总线名替换为占位符、应用名替换为通用名；发送方 pid 刻意保留，因为"每次调用 pid
 都不同"正是整个扩展赖以成立的前提，fixture 是这件事的证据。
-
-## 🧪 测试
-
-`npm test` 是离线门，不需要 shell：引擎单测（`tests/test-groupEngine.mjs`）加仓库级守卫
-（`tests/repo.test.mjs` —— 中英文档成对、零定时器 grep、挂载点归属、shell 进程内无 Gtk、
-记录不含应用名、`reports/` 未被跟踪）。`npm run check` 与 `npm run check:prefs` 是静态与
-gjs 检查；`npm run check:log` 是 CHANGELOG 覆盖率门。
-
-运行时 harness 会起一个私有 GNOME Shell，**刻意不进 CI**：`npm run verify:headless`、
-`npm run verify:ui-guard`、`npm run verify:provoke`（各自证明什么见
-[开发](#-开发)）。每条命令各自打印自己的条数，本文不抄写。
 
 ## 🩹 对 GNOME 50 通知列表缺陷的兜底
 
@@ -337,7 +356,7 @@ GNOME 对比。
   （`notificationDaemon.js:232-241`），任何扩展都无法事后补上。本扩展改的是点击**之后**
   发生的事：一张栈只剩被点的那张时，页面会关掉，免得被误认为"什么都没发生"。
 - **点一张卡的关闭按钮现在只关这张卡**，折叠的合并组里也是如此（原生在那里会关整组）。
-  没有按栈清空——见[已知限制](#known-limitations)。
+  没有按栈清空——见[已知限制](️-已知限制)。
 
 <a name="known-limitations"></a>
 
@@ -349,7 +368,7 @@ GNOME 对比。
   到达时同步销毁最旧那条（`messageTray.js:25`、`:577-580`，reason `EXPIRED`）。原生来源
   差不多就是一张卡，所以几乎丢不到东西；合并把一个应用的卡片全放进同一个来源，于是一个
   **话多的应用**在上限为 10 时，发到第 10 张就会丢掉第 1 张。默认上限 20 高于这条线，由本
-  扩展拦住原生这一下丢弃——怎么拦的见上文[不做什么](#不做什么)；把上限调回 10 及以下则
+  扩展拦住原生这一下丢弃——怎么拦的见上文[不做什么](#-它不做什么)；把上限调回 10 及以下则
   交还给 GNOME 自己裁剪。真被某个发送方刷屏，在它自己那边静音比在这里过滤更合适。
 - **`desktop-entry` hint 指向不存在的 `.desktop` 文件时，分组键会和栈标题脱钩。**
   分组按 hint，标题按 `app_name`。这是窄场景——真实 GTK 应用会解析成 `App` 走原生
