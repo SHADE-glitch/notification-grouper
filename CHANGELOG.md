@@ -761,3 +761,24 @@ Evidence L2 by product: the bus reading above, from a separate observer on the p
 Cost     A documented promise withdrawn: senders that special-cased "reason 4 means we were
          disabled" were never right, and now the record says so.
 Commit   ff06f7e
+
+### D-036 · 2026-11-07 · taste · v11
+Symptom  `max-per-source` shipped GNOME's own ceiling of 10, because D-034 wanted a fresh install to
+         run pure native trimming. The owner runs 20, so every fresh install started below the
+         configuration it is actually used with, and the one "restore" control in the preferences
+         reset the cap to 10 without asking.
+Change   The schema default is now 20 — above the native ceiling, so the default install keeps
+         GNOME from dropping the oldest card of a merged stack. At 10 or below the guard unmounts
+         again and trimming is entirely GNOME's, which stays the way back to stock. The reset moved
+         into a titled Defaults group, asks for confirmation before it acts, and reports back with
+         a toast. AGENTS.md's rule, the README table and prose, and the MAINTENANCE row for
+         `MAX_NOTIFICATIONS_PER_SOURCE` now say 20.
+Evidence L0 `npm test` green this round (13 pass), `npm run check` clean, and `npm run check:prefs`
+         green with the two new dialog members added to the checklist (34 used + 3 forbidden
+         members checked). L1 the compiled schema was read back with `gsettings get` under
+         `GSETTINGS_BACKEND=memory`; the running session still holds its own 20, unchanged.
+         L2 unverified.
+Cost     Every install now mounts the above-native guard by default, which D-034 deliberately avoided.
+         Lowering the cap to 10 restores the old behaviour without touching the code, and the schema
+         comment says so.
+Commit   5f0c54f
