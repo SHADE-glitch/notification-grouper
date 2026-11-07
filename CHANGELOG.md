@@ -782,3 +782,17 @@ Cost     Every install now mounts the above-native guard by default, which D-034
          Lowering the cap to 10 restores the old behaviour without touching the code, and the schema
          comment says so.
 Commit   5f0c54f
+
+### D-037 · 2026-11-07 · fix
+Symptom   Eleven in-body links per language named `#settings` and `#known-limitations`, but this
+          repository's headings open with an emoji and GitHub keeps the space the emoji leaves as a
+          leading dash: the links pointed at anchors no heading produces, so they were dead on the remote
+          while every gate here stayed green.
+Change    The links take the slugs their headings actually answer, in each language; both halves of the
+          README pair gain a generated table of contents under the four-part lead, and Install takes the
+          family name Installation.
+Evidence  L0 2026-11-07 `npm test` green (both suites) and `npm run check:log` PASS; each `#anchor` in
+          the tracked markdown now resolves against a heading in the file it names; `audit-layout.sh`
+          reports this repository compliant.
+Cost      Nothing that resolved before stops resolving; eleven dead links per language now land.
+Commit    4efda6f
