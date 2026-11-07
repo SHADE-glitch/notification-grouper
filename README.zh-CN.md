@@ -12,16 +12,20 @@
 
 **解决什么** — 让每次发送都拿到新 pid 的命令行/开发工具不再堆出一整墙标题相同、每栈只有一张卡的栈头。
 
+<p align="center"><img src="docs/screenshots/comparison.png" alt="开启扩展前后的通知列表：九张卡片对三张" width="900"></p>
+
+<p align="center"><em><b>开启前后</b> —— 三个工具发来的九张通知卡片，收成每应用一张。</em></p>
+
+<p align="center"><img src="docs/screenshots/demo.gif" alt="三个应用的通知各自合并成一张卡片" width="900"></p>
+
+<p align="center"><em><b>动图内容：</b>三个应用各发三条通知，扩展把每个应用的三张卡片折叠成一张。<b>展示的功能：</b>按发送方声明的身份分组——每个应用一个堆叠，最新的卡片在最前面，早先的收在后面。</em></p>
+
 **怎么跑** — 克隆到 `~/.local/share/gnome-shell/extensions/notification-grouper@local`，运行 `gnome-extensions enable notification-grouper@local`，再注销重登。
 
 **去哪看** — 见 [AGENTS.md](AGENTS.md) 与 [MAINTENANCE.md](MAINTENANCE.md)。
 
 GNOME 50。开箱即用——默认值就是全部设计意图，你不必配置任何东西。真想改行为时有五个
 白话开关；没有规则文件，也没有需要学习的配置格式。
-
-<p align="center"><img src="docs/screenshots/comparison.png" alt="开启扩展前后的通知列表：九张卡片对三张" width="900"></p>
-
-<p align="center"><img src="docs/screenshots/demo.gif" alt="三个应用的通知各自合并成一张卡片" width="900"></p>
 
 ## 📖 项目说明
 
