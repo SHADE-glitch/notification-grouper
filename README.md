@@ -73,9 +73,9 @@ Read this before opening an issue — several of these are deliberate.
   you can fill is a set of application names to leave alone.
 - **The stack size cap does not re-implement GNOME's trimming.** GNOME keeps at most
   10 notifications per source (`messageTray.js:25`, oldest destroyed synchronously at
-  `:577-580`). `max-per-source` goes 1..30: at 10 or below that native rule is the whole
-  story and nothing extra is mounted; above it the extension only keeps GNOME from firing,
-  and GNOME's own `addNotification` still does the work. See
+  `:577-580`). `max-per-source` goes 1..30 and ships at **20**: above 10 the extension only
+  keeps GNOME from firing, and GNOME's own `addNotification` still does the work; at 10 or
+  below nothing extra is mounted and that native rule is the whole story again. See
   [Known limitations](#known-limitations) for what merging does to that cap.
 - **No UI of its own.** Icons, titles, banners and urgency are all left to GNOME. The
   extension injects no buttons and overrides no headers. The only click-behaviour
@@ -179,7 +179,7 @@ not have to log out. The page has a restore-defaults action for all five keys at
 | Setting | Key | Default | What it does |
 | --- | --- | --- | --- |
 | Group by app | `grouping-enabled` | on | Off = back to stock GNOME: one stack per sending process. |
-| Cards kept per stack | `max-per-source` | 10 | How many cards one merged stack keeps before the **oldest** is dropped. 1..30. At 10 or below this is GNOME's own rule and nothing extra runs; above it the extension keeps GNOME from dropping the card. |
+| Cards kept per stack | `max-per-source` | 20 | How many cards one merged stack keeps before the **oldest** is dropped. 1..30; the shipped value sits above GNOME's own limit of 10, so the extension keeps GNOME from dropping the card. Set it to 10 or below and that native rule takes over again with nothing extra running. |
 | Work around GNOME's notification-list defects | `ui-guards` | on | The two behaviours described under [the workaround section](#-workaround-for-a-gnome-50-notification-list-defect). Turn it off only to compare against unpatched GNOME. |
 | Apps that keep their own stacks | `isolate-apps` | empty | Names listed here are never merged. Matched on the identity actually used for the group key, after trimming and lower-casing; a trailing `.desktop` is ignored. |
 | Log notifications left out of a stack | `log-fallthrough` | off | One journal line per notification that was not merged, naming the reason and the app. The only way to answer "why is this app in two stacks" from a running session. Never logs the message text. |
@@ -414,13 +414,14 @@ defects** switch turns them off at runtime if you want to compare against stock 
 - **The first click on a collapsed merged group only expands it** (native `:1114-1119`); the
   action fires on the second click. This is unavoidable without re-implementing click
   handling, and it mirrors what a native multi-card stack does.
-- **A merged stack drops its oldest card sooner than GNOME does.** GNOME keeps at most 10
-  notifications *per source* and destroys the oldest synchronously when the eleventh
-  arrives (`messageTray.js:25`, `:577-580`, reason `EXPIRED`). Native sources hold roughly
-  one card each, so almost nothing is ever dropped; merging puts a whole application's
-  cards in one source, so the tenth card of a *busy app* now costs the first one.
-  `max-per-source` goes up to 30, and above 10 the extension keeps GNOME from firing that
-  drop — see [What it does not do](#-what-it-does-not-do) for how. A sender that floods
+- **At a low cap a merged stack drops its oldest card sooner than GNOME does.** GNOME keeps
+  at most 10 notifications *per source* and destroys the oldest synchronously when the
+  eleventh arrives (`messageTray.js:25`, `:577-580`, reason `EXPIRED`). Native sources hold
+  roughly one card each, so almost nothing is ever dropped; merging puts a whole
+  application's cards in one source, so at a cap of 10 the tenth card of a *busy app* would
+  cost the first one. The shipped cap of 20 is above that line: the extension keeps GNOME
+  from firing the drop — see [What it does not do](#-what-it-does-not-do) for how — and
+  lowering the cap to 10 or below hands trimming back to GNOME. A sender that floods
   you is still better silenced at the source than filtered here.
 - **A `desktop-entry` hint that names a non-existent `.desktop` file decouples
   the group key from the stack title.** The group is keyed on the hint while

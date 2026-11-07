@@ -54,7 +54,7 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
         this.#addGrouping(page, settings);
         this.#addExceptions(page, settings);
         this.#addDiagnosis(page, settings);
-        this.#addReset(page, settings);
+        this.#addReset(page, settings, window);
     }
 
     #addDiagnosis(page, settings) {
@@ -208,25 +208,51 @@ export default class NotificationGrouperPreferences extends ExtensionPreferences
             : `Not merged: ${names.join(', ')}`;
     }
 
-    #addReset(page, settings) {
-        const group = new Adw.PreferencesGroup();
+    #addReset(page, settings, window) {
+        const group = new Adw.PreferencesGroup({
+            title: 'Defaults',
+            description: 'Restore every setting to the values this fork ships',
+        });
         page.add(group);
 
         const row = new Adw.ActionRow({
-            title: 'Restore every default',
-            subtitle: 'Grouping on, bug workarounds on, GNOME cap of 10, no exceptions, no fall-through log',
+            title: 'Restore default settings',
+            subtitle: 'Grouping on, bug workarounds on, 20 cards per stack, no exceptions, no fall-through log',
         });
         const btn = new Gtk.Button({
-            label: 'Reset',
+            label: 'Restore Defaults',
             valign: Gtk.Align.CENTER,
             css_classes: ['destructive-action'],
         });
-        btn.connect('clicked', () => {
-            for (const key of ALL_KEYS)
-                settings.reset(key);
-        });
+        btn.connect('clicked', () => this.#confirmReset(settings, window));
         row.add_suffix(btn);
         row.activatable_widget = btn;
         group.add(row);
+    }
+
+    // Reset is destructive and silent, so it asks first — the same two-step the
+    // dock's prefs use. The dialog is transient for the prefs window, which also
+    // keeps it alive for the toast that follows.
+    #confirmReset(settings, window) {
+        const dialog = new Adw.AlertDialog({
+            heading: 'Restore default settings?',
+            body: 'Grouping, the bug workarounds, the card cap, the exception list and the fall-through log all return to their defaults. This cannot be undone.',
+        });
+        dialog.add_response('cancel', 'Cancel');
+        dialog.add_response('restore', 'Restore Defaults');
+        dialog.set_response_appearance('restore', Adw.ResponseAppearance.DESTRUCTIVE);
+        dialog.set_default_response('cancel');
+        dialog.set_close_response('cancel');
+        dialog.connect('response', (_dialog, response) => {
+            if (response !== 'restore')
+                return;
+            for (const key of ALL_KEYS)
+                settings.reset(key);
+            window.add_toast(new Adw.Toast({
+                title: 'Default settings restored',
+                timeout: 3,
+            }));
+        });
+        dialog.present(window);
     }
 }

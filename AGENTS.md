@@ -158,10 +158,10 @@ facts are the thing that drifts.
   changes. `schemas/*.xml` and `schemas/gschemas.compiled` land in the **same** commit (GNOME
   50 no longer compiles schemas shipped by extensions). Defaults must equal the behaviour the
   extension had before the key existed, so a fresh install still needs no configuration.
-  `max-per-source`'s **default** is native `MAX_NOTIFICATIONS_PER_SOURCE` (10) and must stay
-  there; its upper bound is 30, and the extension mounts nothing while the value is at or
-  below 10 — the above-native range is the only part that changes behaviour, so a fresh
-  install still runs pure native trimming (D-034).
+  `max-per-source`'s **default** is **20**, not native `MAX_NOTIFICATIONS_PER_SOURCE` (10):
+  the fork ships the owner's own value, so a fresh install already keeps a merged stack from
+  losing its oldest card (D-036). The upper bound is 30; at 10 or below the extension mounts
+  nothing and trimming is entirely GNOME's, which is still the way back to stock (D-034).
 - **A handler registered from settings is a cleanup obligation.** Every `changed::` id goes
   into `_settingsHids` and `disable()` disconnects each one — same rule as every patch point.
 - **`prefs.js` may only use Adw/Gtk members that exist on this machine.** libadwaita 1.9.1 has

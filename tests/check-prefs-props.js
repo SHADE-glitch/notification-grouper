@@ -57,6 +57,15 @@ const USED = [
     { cls: 'Gtk.Button', kind: 'prop', name: 'valign' },
     { cls: 'Gtk.Button', kind: 'prop', name: 'css_classes' },
     { cls: 'Gtk.Button', kind: 'signal', name: 'clicked' },
+    // Restore-defaults confirmation. The button resets every key at once, which
+    // cannot be undone, so it asks first; the dialog's methods (add_response,
+    // set_response_appearance, present) are not introspectable here, only its
+    // properties and the response signal are.
+    { cls: 'Adw.AlertDialog', kind: 'prop', name: 'heading' },
+    { cls: 'Adw.AlertDialog', kind: 'prop', name: 'body' },
+    { cls: 'Adw.AlertDialog', kind: 'signal', name: 'response' },
+    { cls: 'Adw.Toast', kind: 'prop', name: 'title' },
+    { cls: 'Adw.Toast', kind: 'prop', name: 'timeout' },
 ];
 
 // Pin the historical defect in reverse: if either of these ever becomes "present", Adw changed its semantics and the list must be re-read.

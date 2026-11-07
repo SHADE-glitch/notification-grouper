@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <!-- Zero-config defaults: every key takes the value of "the extension's current behaviour", so
-       it works as installed without touching any key. max-per-source defaults to native
-       messageTray.js's MAX_NOTIFICATIONS_PER_SOURCE (10) and may be raised to 30: at or below the
-       native ceiling the stack runs pure native code, and only above it does the extension keep
-       native from dropping the oldest card itself. Lowering back to 10 unmounts that again. -->
+  <!-- Zero-config defaults: every key takes the value this fork ships, so it works as installed
+       without touching any key. max-per-source defaults to 20 — above native messageTray.js's
+       MAX_NOTIFICATIONS_PER_SOURCE (10), so the default install keeps native from dropping the
+       oldest card of a merged stack; the range is 1..30, and lowering it to 10 or below unmounts
+       that guard again and leaves trimming entirely to GNOME (D-034, D-036). -->
   <schema id="org.gnome.shell.extensions.notification-grouper"
           path="/org/gnome/shell/extensions/notification-grouper/">
 
@@ -16,7 +16,7 @@
 
     <key name="max-per-source" type="i">
       <range min="1" max="30"/>
-      <default>10</default>
+      <default>20</default>
       <summary>Cards kept per stack</summary>
       <description>How many notifications one merged stack keeps before the oldest is dropped. 10 is GNOME's own limit; above it this extension keeps GNOME from dropping the card.</description>
     </key>
