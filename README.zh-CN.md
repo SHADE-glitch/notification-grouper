@@ -19,6 +19,10 @@
 GNOME 50。开箱即用——默认值就是全部设计意图，你不必配置任何东西。真想改行为时有五个
 白话开关；没有规则文件，也没有需要学习的配置格式。
 
+<p align="center"><img src="docs/screenshots/comparison.png" alt="开启扩展前后的通知列表：九张卡片对三张" width="900"></p>
+
+<p align="center"><img src="docs/screenshots/demo.gif" alt="三个应用的通知各自合并成一张卡片" width="900"></p>
+
 ## 📖 项目说明
 
 **SHADE-glitch** 的**原创扩展**，不是分支，没有需要署名的上游项目。为 GNOME Shell

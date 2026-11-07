@@ -21,6 +21,10 @@ GNOME 50. Works out of the box — the defaults are the whole point, so you neve
 to configure anything. Four plain switches exist for when you do want to change
 behaviour; there is no rules file and no config format to learn.
 
+<p align="center"><img src="docs/screenshots/comparison.png" alt="The notification list without and with the extension: nine cards against three" width="900"></p>
+
+<p align="center"><img src="docs/screenshots/demo.gif" alt="Notifications from three applications folding into one card each" width="900"></p>
+
 ## 📖 About
 
 An **original extension** by **SHADE-glitch** — not a fork, with no upstream
