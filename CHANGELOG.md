@@ -809,3 +809,20 @@ Evidence  `npm test` green (see the totals below), `npm run check:log` PASS.
 Cost      The snapshot cannot be read from ~/.agents at CI time, so this list is a copy by design; section 13
           of the machine-wide audit checks it and reports drift.
 Commit    67a0001
+
+
+### D-039 · 2026-11-12 · guard
+Symptom   The snapshot was one title short of the standard and wrote the common-core rule in shortened
+          form, so a copy of the standard's full title, or of the CI section, was never caught. The CI
+          entry was held back on purpose: the check is a substring test, so a bare "CI" fired on every
+          prose mention, which left the snapshot silently incomplete.
+Change    Listed all twenty standard titles in the standard's own order, including the CI section in its
+          numbered form (`## 5. CI`). The loop is back to a single `agents.includes(heading)`: the
+          numbered form keeps a one-word title from matching prose, and section 13 of the machine-wide
+          audit normalises it before comparing, so no repository needs a matcher of its own.
+Evidence  `npm test` green, `npm run check:log` PASS. The numbered form was negative-tested in
+          macos-dock: a real `## 5. CI` heading in AGENTS.md turned the check red, then was reverted
+          byte-for-byte (sha256 identical).
+Cost      The snapshot is still a copy by design (CI cannot read `~/.agents`); drift is caught by
+          audit section 13, which now also reports a snapshot that names CI only in prose form.
+Commit    d23b60f
