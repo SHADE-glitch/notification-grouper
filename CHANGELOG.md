@@ -830,8 +830,8 @@ Commit    d23b60f
 ### D-040 · 2026-11-12 · chore
 Symptom  The project-level rules pointer block in AGENTS.md used bare `@~/.agents/standards/...`
          imports to pull in the machine-wide standard. That only delivers the rule text to agents
-         that expand `@` imports or read `opencode.json`; an agent that does neither holds the
-         pointer and none of the rule text.
+         that expand `@` imports or read the repo-root delivery config; an agent that does neither
+         holds the pointer and none of the rule text.
 Change   Replaced the two `@` imports with plain backticked absolute paths
          (`~/.agents/standards/STANDARD.md`, `~/.agents/standards/dimensions/<tier>.md`). The rule
          text is now delivered by the tool-neutral global behavior contract (GLOBAL.md) before the
