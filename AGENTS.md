@@ -9,10 +9,9 @@ published under GPL-2.0-or-later.
 > §4 runtime ignore list, §5 conflict rule, §6 remotes/pushing, §8 profile listing) and the
 > dimension-A detail in `~/.agents/standards/dimensions/a.md`. Neither is restated here.
 >
-> **Read these before the first edit** (bare `@` imports — the agent harness expands them at
-> session start; the repo-root delivery config names the same two files):
-> @~/.agents/standards/STANDARD.md
-> @~/.agents/standards/dimensions/a.md
+> **Read these before the first edit:**
+> `~/.agents/standards/STANDARD.md`
+> `~/.agents/standards/dimensions/a.md`
 
 This file is the **rulebook**. Verifiable facts, native line anchors and procedures live in
 [`MAINTENANCE.md`](MAINTENANCE.md); per-phase evidence lives in `docs/reports/`, which is
