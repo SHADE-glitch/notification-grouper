@@ -252,8 +252,8 @@ journalctl --user -b | grep notification-grouper
 
 ## 🧪 测试
 
-`npm test` 是离线门，不需要 shell：引擎单测（`tests/test-groupEngine.mjs`）加仓库级守卫
-（`tests/repo.test.mjs` —— 中英文档成对、零定时器 grep、挂载点归属、shell 进程内无 Gtk、
+`npm test` 是离线门，不需要 shell：引擎单测（`test/test-groupEngine.mjs`）加仓库级守卫
+（`test/repo.test.mjs` —— 中英文档成对、零定时器 grep、挂载点归属、shell 进程内无 Gtk、
 记录不含应用名、`reports/` 未被跟踪）。`npm run check` 与 `npm run check:prefs` 是静态与
 gjs 检查；`npm run check:log` 是 CHANGELOG 覆盖率门。
 
@@ -269,7 +269,7 @@ groupEngine.js     纯函数：归一化、分组、挂载点与兜底点自检
 uiWorkarounds.js   GNOME 缺陷兜底，独立成一个可整块删除的文件
 prefs.js           设置页（独立 GTK 进程，shell 永不加载它）
 schemas/           gsettings schema；gschemas.compiled 已入库，无构建步骤
-tests/             node 套件 + headless 运行时 harness
+test/             node 套件 + headless 运行时 harness
 scripts/bench.mjs  引擎微基准
 ```
 
@@ -290,16 +290,16 @@ npm run verify:provoke     # 在 /tmp 副本里逐个把设置路径改坏，每
 看起来像证据，其实是噪声。两个 harness 各自打印自己的条数。
 
 `npm test` 覆盖引擎和仓库，**不**覆盖运行时行为：真正执行 `extension.js` 的只有
-`tests/headless-verify.sh`。两个 headless harness 会起一个私有 GNOME Shell
+`test/headless-verify.sh`。两个 headless harness 会起一个私有 GNOME Shell
 （`dbus-run-session` + `GSETTINGS_BACKEND=memory` + 独立 `XDG_DATA_HOME`），不会碰你的
-会话、配置或通知栏。`tests/headless-ui-guard.sh` 对两份构建跑同一条断言，要求结果**翻转**
+会话、配置或通知栏。`test/headless-ui-guard.sh` 对两份构建跑同一条断言，要求结果**翻转**
 ——只在新代码上亮绿灯的探针什么也证明不了。
 
 harness 里也记下了那些实测才踩得到的坑：GNOME 50 拒绝符号链接的扩展目录（要复制）、
 `--nested` 已被移除、`gdbus` 会把裸 `-1` 参数当选项、`GLib.spawn_async` 返回的是 pid
 而不是子进程句柄，以及 `WeakRef` 不能用来查泄漏——GJS 不会按需回收 GObject 包装。
 
-`tests/fixtures/` 下的 JSON fixture 是用 `dbus-monitor` 从真实通知抓的。正文已清空、
+`test/fixtures/` 下的 JSON fixture 是用 `dbus-monitor` 从真实通知抓的。正文已清空、
 D-Bus 总线名替换为占位符、应用名替换为通用名；发送方 pid 刻意保留，因为"每次调用 pid
 都不同"正是整个扩展赖以成立的前提，fixture 是这件事的证据。
 

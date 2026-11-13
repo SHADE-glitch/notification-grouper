@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * check-log.mjs — the recording-coverage check. No dependencies, no build step;
- * `node tests/check-log.mjs` is the real gate and must keep working without npm.
+ * `node test/check-log.mjs` is the real gate and must keep working without npm.
  *
  * Six checks, all bounded by the window declared in CHANGELOG.md:
  *   0. the record is not empty (a coverage check over an empty set proves nothing)

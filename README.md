@@ -304,7 +304,7 @@ Upstream renamed something — please open an issue with this line:
 ## 🧪 Testing
 
 `npm test` is the offline gate and needs no shell: the engine unit tests
-(`tests/test-groupEngine.mjs`) plus the repository guards (`tests/repo.test.mjs` — bilingual
+(`test/test-groupEngine.mjs`) plus the repository guards (`test/repo.test.mjs` — bilingual
 doc pair, zero-timer grep, patch-point ownership, no-Gtk-in-shell-process, records free of
 application names, `reports/` untracked). `npm run check` and `npm run check:prefs` are the
 static and gjs checks; `npm run check:log` gates the CHANGELOG coverage.
@@ -322,7 +322,7 @@ groupEngine.js     pure functions: normalisation, grouping, patch-point self-che
 uiWorkarounds.js   the GNOME-defect workarounds, as one deletable unit
 prefs.js           the settings page (own GTK process; never loaded by the shell)
 schemas/           the gsettings schema; gschemas.compiled is committed, so no build step
-tests/             node suite + headless runtime harnesses
+test/             node suite + headless runtime harnesses
 scripts/bench.mjs  engine microbenchmark
 ```
 
@@ -345,10 +345,10 @@ on the first added assertion and then reads as evidence when it is noise. Both c
 print their own number.
 
 `npm test` covers the engine and the repository, **not** runtime behaviour: only
-`tests/headless-verify.sh` executes `extension.js`. The two headless harnesses boot a
+`test/headless-verify.sh` executes `extension.js`. The two headless harnesses boot a
 private GNOME Shell (`dbus-run-session`, `GSETTINGS_BACKEND=memory`, a private
 `XDG_DATA_HOME`) so they never touch your session, your settings, or your notification
-tray. `tests/headless-ui-guard.sh` runs the same assertion against two builds, so it must
+tray. `test/headless-ui-guard.sh` runs the same assertion against two builds, so it must
 *flip* between them; a probe that merely passes on the new code proves nothing.
 
 The harnesses also encode traps that cost real time to discover: GNOME 50 rejects
@@ -357,7 +357,7 @@ bare `-1` argument as an option, `GLib.spawn_async` returns a pid rather than a
 subprocess handle, and `WeakRef` cannot be used to detect leaks because GJS does not
 collect GObject wrappers on demand.
 
-The JSON fixtures under `tests/fixtures/` were captured with `dbus-monitor` from
+The JSON fixtures under `test/fixtures/` were captured with `dbus-monitor` from
 real notifications. Bodies are emptied, D-Bus bus names replaced with placeholders and
 application names replaced with generic ones; sender pids are kept, because "every
 invocation has a different pid" is the premise the whole extension rests on and the

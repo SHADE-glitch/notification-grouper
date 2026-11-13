@@ -59,7 +59,7 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 | L0 | `npm test`、`npm run check`、`npm run check:log` | 只有 Node | 纯函数行为、仓库级不变量、CHANGELOG 覆盖 |
 | L0.5 | `npm run check:prefs` | `gjs` + libadwaita 内省，不起 shell | `prefs.js` 用到的每个 Adw/Gtk 成员在本机存在，且被禁用的成员没被用 |
 | L1 | `npm run verify:headless`、`npm run verify:ui-guard`（两种 `EXPECT`）、`npm run verify:provoke` | 一次性 headless GNOME Shell（私有 D-Bus + `GSETTINGS_BACKEND=memory` + 私有 `XDG_DATA_HOME` + 独立 `--wayland-display`） | 补丁挂载与还原、合并语义、来源销毁、设置热应用、兜底是否真的拦住了原生缺陷、**削位告诉发送方的 reason 真的上了总线**（同总线另起 `dbus-monitor`） |
-| L2 | `tests/smoke.sh` 清单，由用户在真实会话跑 | 用户桌面 | 真实发送方（CLI hook / systemd / 带 `--app-name` 的工具）的行为、观感、深浅色、prefs 对话框实际渲染 |
+| L2 | `test/smoke.sh` 清单，由用户在真实会话跑 | 用户桌面 | 真实发送方（CLI hook / systemd / 带 `--app-name` 的工具）的行为、观感、深浅色、prefs 对话框实际渲染 |
 
 **L1 看不到什么**（写在这里是为了不要拿它当证据）：
 
@@ -152,7 +152,7 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
    `uiWorkarounds.js` 头部的九文件清单整块删除兜底。
 5. 只有第 3、4 步都绿了，才讨论放宽 `shell-version`；放宽范围只写实际跑过的版本。
 6. **发布物单独过一遍 L1**：`npm run pack` 产出 zip（它自带内容完整性门禁），解包后
-   `tests/headless-verify.sh <解包目录> bundle` 必须同样全绿。源码树绿 **不等于** zip 绿：
+   `test/headless-verify.sh <解包目录> bundle` 必须同样全绿。源码树绿 **不等于** zip 绿：
    GNOME 50 的 `gnome-extensions pack` 是 C 程序，只收固定文件名（`metadata.json` /
    `extension.js` / `prefs.js` / `stylesheet*.css`），拆出去的模块会被**静默丢掉且 exit 0**。
    schema 那边它只收 `schemas/<id>.gschema.xml`，不收 `schemas/gschemas.compiled`——运行时
@@ -180,7 +180,7 @@ gresource extract /usr/lib/gnome-shell/libshell-18.so \
 - **禁止** `WeakRef` + `imports.system.gc()`：本机实测那样回收不到 GObject 包装，
   `deref()` 仍返回活对象——用它判泄漏会把真泄漏读成已修复。
 
-**RSS 打点**（只做趋势参考，不是判据）：`tests/headless-verify.sh` 读 `/proc/self/statm`
+**RSS 打点**（只做趋势参考，不是判据）：`test/headless-verify.sh` 读 `/proc/self/statm`
 第 2 页，打四个点——baseline → 通知爆发后 → 二次 enable 后 → 全部 disable 后——并原样打印
 （第四个点在设置阶段提前抛异常时不会被采样，打印为 `(not sampled)`）。它**不参与任何断言、
 不影响退出码**，因为同进程里字体、图标、GPU 缓存的噪声远大于扩展本体；把它当红色判据就是在

@@ -1,12 +1,12 @@
 #!/bin/bash
-# tests/pack.sh — produce an installable zip and prove its contents are complete.
+# test/pack.sh — produce an installable zip and prove its contents are complete.
 #
 # Why a wrapper is needed at all (all three measured on GNOME 50 tooling):
 #
 #   1. `gnome-extensions pack` auto-includes only a fixed set of filenames
 #      (metadata.json, extension.js, prefs.js, stylesheet*.css). This extension's
 #      split-out modules are **silently dropped** — exit code 0, broken bundle.
-#      Verified: the naive bundle ran 2/41 in tests/headless-verify.sh, because
+#      Verified: the naive bundle ran 2/41 in test/headless-verify.sh, because
 #      `extension.js` cannot even import its engine.
 #   2. For settings it ships `schemas/<id>.gschema.xml` (driven by metadata.json's
 #      `settings-schema`) but **never** `schemas/gschemas.compiled`, which is the file
@@ -24,11 +24,11 @@
 # Do not "verify" any of this with `gnome-extensions install <zip>`: measured on this
 # machine it prints "Can't recursively copy directory" for every zip, including a flat
 # two-file one, and still exits 0 having installed nothing. Verify the artifact by
-# extracting it and running tests/headless-verify.sh against the extracted directory.
+# extracting it and running test/headless-verify.sh against the extracted directory.
 #
 # So: call the packer for what it does right, add what it cannot, then refuse to
 # hand over a bundle that is missing anything. The declared lists below are the same
-# ones `npm test` cross-checks against the real import graph (tests/repo.test.mjs),
+# ones `npm test` cross-checks against the real import graph (test/repo.test.mjs),
 # so a future module split that forgets this file turns CI red instead of shipping
 # an inert extension.
 set -eu
@@ -81,7 +81,7 @@ REQUIRED = [
     'groupEngine.js', 'uiWorkarounds.js',
     f'schemas/{schema}.gschema.xml', 'schemas/gschemas.compiled',
 ]
-FORBIDDEN = ('.git/', 'tests/', 'reports/', 'node_modules/', 'docs/')
+FORBIDDEN = ('.git/', 'test/', 'reports/', 'node_modules/', 'docs/')
 names = set(zipfile.ZipFile(zip_path).namelist())
 missing = [f for f in REQUIRED if f not in names]
 leaked = sorted(n for n in names if n.startswith(FORBIDDEN))

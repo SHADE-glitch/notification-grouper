@@ -75,7 +75,7 @@ invariant with no guard is as good as none.
 | L0 | `npm test`, `npm run check`, `npm run check:log` | Node only | pure-function behavior, repo-level invariants, CHANGELOG coverage |
 | L0.5 | `npm run check:prefs` | `gjs` + libadwaita introspection, no shell | every Adw/Gtk member used by `prefs.js` exists on this machine, and disabled members are not used |
 | L1 | `npm run verify:headless`, `npm run verify:ui-guard` (both `EXPECT` modes), `npm run verify:provoke` | a one-shot headless GNOME Shell (private D-Bus + `GSETTINGS_BACKEND=memory` + private `XDG_DATA_HOME` + separate `--wayland-display`) | patch attach and restore, merge semantics, source destruction, settings hot-application, whether the fallback really catches the native defect, **whether the eviction reason told to the sender really reached the bus** (a separate `dbus-monitor` on the same bus) |
-| L2 | the `tests/smoke.sh` checklist, run by the user in a real session | the user's desktop | real senders' (CLI hook / systemd / tools with `--app-name`) behavior, look and feel, light/dark, the prefs dialog's actual rendering |
+| L2 | the `test/smoke.sh` checklist, run by the user in a real session | the user's desktop | real senders' (CLI hook / systemd / tools with `--app-name`) behavior, look and feel, light/dark, the prefs dialog's actual rendering |
 
 **What L1 cannot see** (written here so you don't use it as evidence):
 
@@ -188,7 +188,7 @@ steps:
 5. Only once steps 3 and 4 are both green, discuss relaxing `shell-version`; list only
    versions actually run.
 6. **Run the release artifact through L1 separately**: `npm run pack` produces the zip (it has
-   its own content-integrity gate); after unpacking, `tests/headless-verify.sh <unpacked-dir>
+   its own content-integrity gate); after unpacking, `test/headless-verify.sh <unpacked-dir>
    bundle` must likewise be all green. A green source tree **does not equal** a green zip:
    GNOME 50's `gnome-extensions pack` is a C program that collects only fixed filenames
    (`metadata.json` / `extension.js` / `prefs.js` / `stylesheet*.css`), so split-out modules
@@ -225,7 +225,7 @@ immediately), **not** "it looks like it isn't moving".
   collect a GObject wrapper, and `deref()` still returns a live object — using it to judge
   leaks reads a real leak as fixed.
 
-**RSS sampling** (trend reference only, not a criterion): `tests/headless-verify.sh` reads
+**RSS sampling** (trend reference only, not a criterion): `test/headless-verify.sh` reads
 page 2 of `/proc/self/statm` at four points — baseline → after a notification burst → after a
 second enable → after everything is disabled — and prints them as-is (the fourth point is not
 sampled if the settings phase throws early, and prints as `(not sampled)`). It **participates

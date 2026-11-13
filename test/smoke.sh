@@ -1,13 +1,13 @@
 #!/bin/bash
-# tests/smoke.sh — the L2 manual checklist (a real session; only you can run it).
+# test/smoke.sh — the L2 manual checklist (a real session; only you can run it).
 #
 # Why it is needed: the two L1 harnesses send synthetic notifications with notify-send and can prove
 # patch mount/restore and the merge semantics, but not a real sender's behaviour — the last round's
 # "groups but the experience is poor" ran green on synthetic notifications. This script auto-checks
 # the **machine-checkable** parts first, then prints the items only a human can judge.
 #
-#   usage: tests/smoke.sh            read-only; changes no config, sends no message, enables/disables nothing
-#   convention: the checklist uses no checkbox syntax (committed docs here forbid `- [ ]`, see tests/repo.test.mjs)
+#   usage: test/smoke.sh            read-only; changes no config, sends no message, enables/disables nothing
+#   convention: the checklist uses no checkbox syntax (committed docs here forbid `- [ ]`, see test/repo.test.mjs)
 set -u
 UUID=notification-grouper@local
 FAIL=0

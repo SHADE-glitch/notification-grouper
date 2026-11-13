@@ -1,16 +1,16 @@
 #!/bin/bash
-# tests/provoke-settings.sh — proves that the gates on "user-visible behaviour" really hang off
+# test/provoke-settings.sh — proves that the gates on "user-visible behaviour" really hang off
 # behaviour rather than being permanently green. It covers the four settings-surface keys, the trim
 # timing, and the reason handed to the sender: any assertion of the "the implementation idles and it
 # still reads green" kind should have a matching mutation here.
 #
 # Method: copy the whole tree to /tmp, change one settings read point **into a constant** in the copy
-# (i.e. "the setting is ignored"), run the same tests/headless-verify.sh, and require the **matching
+# (i.e. "the setting is ignored"), run the same test/headless-verify.sh, and require the **matching
 # assertion to go red**. Only that one assertion is judged; the others do not take part. An assertion
 # that reads PASS whether or not the implementation took effect has no reason to exist — this script
 # exists to expose exactly that. It never touches the working tree.
 #
-#   usage: tests/provoke-settings.sh          (12 headless rounds, one per entry in CASES)
+#   usage: test/provoke-settings.sh          (12 headless rounds, one per entry in CASES)
 #   exit:  0 every mutation produced the expected red; 1 a mutation did not go red, or a literal is stale
 #
 # Fields are separated by TAB, not a pipe: both assertion names and replacement strings may contain a pipe.
@@ -86,7 +86,7 @@ PY
         echo "BROKEN    $id — mutation produced unparsable JS"; FAILED=$((FAILED+1)); continue; }
 
     OUT="$WORK/$id.log"
-    bash "$ROOT/tests/headless-verify.sh" "$D" >"$OUT" 2>&1
+    bash "$ROOT/test/headless-verify.sh" "$D" >"$OUT" 2>&1
     rc=$?
     if grep -aqF "FAIL  $expect" "$OUT"; then
         echo "PROVEN    $id -> '$expect' went red (harness exit $rc)"

@@ -4,16 +4,16 @@
 // **deletable unit**. Once upstream fixes it, delete it following the checklist below (measured to
 // touch 9 files; "just rm one file" is false):
 //   1. rm uiWorkarounds.js
-//   2. rm tests/headless-ui-guard.sh      — this provocation harness exists only for the workarounds
+//   2. rm test/headless-ui-guard.sh      — this provocation harness exists only for the workarounds
 //   3. package.json                       — drop the verify:ui-guard script
 //   4. extension.js                       — the header comment, the import, the detach() call in
 //      disable(), the guards: part of the log line, and attach({...}) at the end of _attach()
 //   5. groupEngine.js                     — REQUIRED_UI_GUARDS and checkUiGuardPoints
-//   6. tests/test-groupEngine.mjs         — the 2 checkUiGuardPoints cases and their import
-//   7. tests/repo.test.mjs                — HOME.guard, both REQUIRED_UI_GUARDS spots, and the
+//   6. test/test-groupEngine.mjs         — the 2 checkUiGuardPoints cases and their import
+//   7. test/repo.test.mjs                — HOME.guard, both REQUIRED_UI_GUARDS spots, and the
 //      "workarounds must not leak into extension.js" assertion
-//   8. tests/check-log.mjs                — remove 'uiWorkarounds.js' from CODE_PATHS
-//   9. tests/headless-verify.sh           — the Uw import, guardsMountedBeforeJudging,
+//   8. test/check-log.mjs                — remove 'uiWorkarounds.js' from CODE_PATHS
+//   9. test/headless-verify.sh           — the Uw import, guardsMountedBeforeJudging,
 //      guardsRestoredToPristine, "disable log matches reality" and the matching python-side entries
 // After deleting, record a revert in CHANGELOG citing the D-id that introduced the workarounds.
 // They degrade independently of the grouping layer (extension.js) and the pure-function layer

@@ -355,7 +355,7 @@ facts are the thing that drifts.
 - **`prefs.js` may only use Adw/Gtk members that exist on this machine.** libadwaita 1.9.1 has
   no `subtitle` on `Adw.EntryRow` / `Adw.ButtonRow` and `Adw.SpinRow` has no `value-changed`
   signal (its `value` is a `double`, so an `int` key cannot be `bind()`-ed to it). Add every
-  used member to `tests/check-prefs-props.js` and run `npm run check:prefs`; that gate exists
+  used member to `test/check-prefs-props.js` and run `npm run check:prefs`; that gate exists
   because a missing property is a runtime warning the harnesses cannot see.
 - **Logging discipline**: one line for enable, one for disable, a line or two when a switch is
   flipped — never per notification, never a notification body. The single sanctioned exception
@@ -368,7 +368,7 @@ facts are the thing that drifts.
   (`git archive HEAD | tar -x -C /tmp/…`), see it fail, then make it pass. An assertion that
   cannot fail is not an assertion.
 - **Prove the assertion is wired to behaviour, not to the code shape.** For anything that
-  gates a user-visible behaviour, add a mutation to `tests/provoke-settings.sh` (break the
+  gates a user-visible behaviour, add a mutation to `test/provoke-settings.sh` (break the
   live path in a /tmp copy; the named assertion must go red). Beware **equivalent mutants**:
   if a mutation survives, check whether another path already produces the same result before
   declaring the assertion vacuous — that has happened here and the correct answer was a
@@ -403,17 +403,17 @@ facts are the thing that drifts.
 ## Tests
 - `npm test` — Node only, no shell: engine unit tests **plus** the repository-level guards
   (bilingual doc pair, zero-timer grep, patch-point ownership, no-Gtk-in-shell-process,
-  records-free-of-app-names, `reports/` untracked). `node tests/test-groupEngine.mjs` and
-  `node tests/repo.test.mjs` remain runnable bare and must stay dependency-free.
-- `npm run test:coverage` — Node's built-in coverage (`--experimental-test-coverage`) over the two `tests/*.mjs` suites. The report also lists the test files; read the `groupEngine.js` row for the product module. A **reading, not a gate** (no threshold); `extension.js`, `prefs.js` and `uiWorkarounds.js` are shell-bound and invisible to Node.
+  records-free-of-app-names, `reports/` untracked). `node test/test-groupEngine.mjs` and
+  `node test/repo.test.mjs` remain runnable bare and must stay dependency-free.
+- `npm run test:coverage` — Node's built-in coverage (`--experimental-test-coverage`) over the two `test/*.mjs` suites. The report also lists the test files; read the `groupEngine.js` row for the product module. A **reading, not a gate** (no threshold); `extension.js`, `prefs.js` and `uiWorkarounds.js` are shell-bound and invisible to Node.
 - `npm run check` — `node --check` over every shipped JS file. `npm run check:prefs` — the
   Adw member gate (needs `gjs`, no shell). `npm run check:log` — CHANGELOG coverage gate.
 - `npm run pack` — build the installable zip **and** gate its contents (needs the
   `gnome-extensions` CLI, so it is a local step; `npm test` guards the manifest instead).
-- `npm run verify:headless` (`tests/headless-verify.sh`) — runtime assertions in a throwaway
+- `npm run verify:headless` (`test/headless-verify.sh`) — runtime assertions in a throwaway
   GNOME Shell: `dbus-run-session` + `GSETTINGS_BACKEND=memory` + private `XDG_DATA_HOME` +
   unique `--wayland-display` + `--headless --virtual-monitor`. It must stay isolated — never
-  point it at the live session or drop the memory backend. `tests/headless-verify.sh <dir>`
+  point it at the live session or drop the memory backend. `test/headless-verify.sh <dir>`
   runs it against a different tree, which is how the pre-change comparison is done.
 - `npm run verify:ui-guard` — provocation bench; `EXPECT=guarded`/`EXPECT=native` must give
   opposite verdicts, and both are asserted by exit code rather than by a human diff.
@@ -426,7 +426,7 @@ facts are the thing that drifts.
 - Verification tiers are defined by what a claim needs, not by which tool ran: **L0** Node
   only, **L1** throwaway shell, **L2** the user's real session — which nothing here can
   automate. `MAINTENANCE.md § The three verification layers` lists what each tier cannot see.
-- The suite needs `tests/fixtures/`. Fixture provenance must stay free of private toolchain
+- The suite needs `test/fixtures/`. Fixture provenance must stay free of private toolchain
   paths **and of real application names** — the pid and hint structure are the evidence.
 
 ## CI
@@ -446,7 +446,7 @@ facts are the thing that drifts.
   long as CI runs the suite command; only touch CI if the *command itself* changes, or the
   environment does (a new dependency, a Node bump, a new system tool).
 - **Renamed or moved code**: `check:log` watches a declared list (`CODE_PATHS` in
-  `tests/check-log.mjs` — `extension.js`, `groupEngine.js`, `uiWorkarounds.js`, `prefs.js`).
+  `test/check-log.mjs` — `extension.js`, `groupEngine.js`, `uiWorkarounds.js`, `prefs.js`).
   If a watched file moves, update that list in the same change; the check goes red until you do.
 - **After a refactor**, confirm CI still exercises the real code and that the declared paths
   still cover it. A green CI that no longer touches the changed code is worse than a red one.
@@ -455,7 +455,7 @@ facts are the thing that drifts.
 
 ## Release / version
 - **Never release a bundle the gate has not produced.** Use `npm run pack`
-  (`tests/pack.sh`), not a bare `gnome-extensions pack`. Measured on this machine's GNOME 50
+  (`test/pack.sh`), not a bare `gnome-extensions pack`. Measured on this machine's GNOME 50
   tooling: the packer auto-includes only `metadata.json` / `extension.js` / `prefs.js` /
   `stylesheet*.css`, so every module split out of `extension.js` is dropped **silently**
   (exit 0) and the resulting extension cannot even import its engine. It ships
@@ -465,14 +465,14 @@ facts are the thing that drifts.
   its `.xml`); we ship ours so **the bundle equals the source tree** that `git clone` installs.
   `--schema=` and a directory `--extra-source` both fail and still exit 0;
   `--extra-source=schemas/x.compiled` lands the file at the zip **root**.
-  `tests/pack.sh` adds what the packer cannot and refuses to emit a bundle missing any runtime
+  `test/pack.sh` adds what the packer cannot and refuses to emit a bundle missing any runtime
   file, so the manifest is the only place the list lives, and `npm test` (which is what CI can
   run — no `gnome-extensions` on runners) fails if a new local import is not declared there.
 - **`gnome-extensions install <zip>` is not an instrument on this box.** Measured: it prints
   "Can't recursively copy directory" for *every* zip, including a flat two-file one, exits 0,
   and installs nothing. Never cite it as evidence that a bundle does or does not work.
 - **The installable artifact gets its own L1 run**: extract the produced zip and run
-  `tests/headless-verify.sh <extracted-dir> <label>`. The source tree passing proves nothing
+  `test/headless-verify.sh <extracted-dir> <label>`. The source tree passing proves nothing
   about the bundle (the undeclared bundle measured 2/41 while the tree ran 41/41).
 - The shipped version is the integer **`version`** field in `metadata.json` — the only place
   the number lives; nothing else hardcodes it.

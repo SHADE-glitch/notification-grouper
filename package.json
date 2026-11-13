@@ -4,15 +4,15 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node tests/test-groupEngine.mjs && node tests/repo.test.mjs",
-    "test:coverage": "node --experimental-test-coverage --test tests/test-groupEngine.mjs tests/repo.test.mjs",
+    "test": "node test/test-groupEngine.mjs && node test/repo.test.mjs",
+    "test:coverage": "node --experimental-test-coverage --test test/test-groupEngine.mjs test/repo.test.mjs",
     "check": "node --check extension.js groupEngine.js uiWorkarounds.js prefs.js",
     "bench": "node scripts/bench.mjs",
-    "check:prefs": "gjs tests/check-prefs-props.js",
-    "verify:headless": "tests/headless-verify.sh",
-    "verify:ui-guard": "tests/headless-ui-guard.sh",
-    "verify:provoke": "tests/provoke-settings.sh",
-    "pack": "tests/pack.sh",
-    "check:log": "node tests/check-log.mjs"
+    "check:prefs": "gjs test/check-prefs-props.js",
+    "verify:headless": "test/headless-verify.sh",
+    "verify:ui-guard": "test/headless-ui-guard.sh",
+    "verify:provoke": "test/provoke-settings.sh",
+    "pack": "test/pack.sh",
+    "check:log": "node test/check-log.mjs"
   }
 }

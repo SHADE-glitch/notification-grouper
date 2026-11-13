@@ -192,15 +192,15 @@ describe("shipped code keeps the promises its comments make", () => {
     it("the pack manifest covers every module the shipped code imports", () => {
         // `gnome-extensions pack` on GNOME 50 ships a fixed filename whitelist and
         // exits 0 whether or not the rest made it in. Every module this repo split out
-        // of extension.js therefore has to be declared in tests/pack.sh, or the
+        // of extension.js therefore has to be declared in test/pack.sh, or the
         // installable zip contains an extension that cannot even load — measured: the
-        // undeclared bundle ran 2/41 in tests/headless-verify.sh. The packer also ships
+        // undeclared bundle ran 2/41 in test/headless-verify.sh. The packer also ships
         // schemas/<id>.gschema.xml but never gschemas.compiled, which is the file the
         // runtime actually opens (new_from_directory() throws without it).
-        const pack = read("tests/pack.sh");
+        const pack = read("test/pack.sh");
         const declared = (name) => {
             const m = pack.match(new RegExp(`^${name}="([^"]*)"$`, "m"));
-            assert.ok(m, `tests/pack.sh must declare ${name}=...`);
+            assert.ok(m, `test/pack.sh must declare ${name}=...`);
             return new Set(m[1].split(/\s+/).filter(Boolean));
         };
         const extras = declared("EXTRA_SOURCES");
@@ -218,7 +218,7 @@ describe("shipped code keeps the promises its comments make", () => {
             `only ${imported.size} local module(s) imported by shipped code — the import scan lost its target set`);
         for (const mod of imported)
             assert.ok(AUTO.has(mod) || extras.has(mod),
-                `${mod} is imported by shipped code but declared nowhere in tests/pack.sh — the bundle would load inert`);
+                `${mod} is imported by shipped code but declared nowhere in test/pack.sh — the bundle would load inert`);
 
         assert.ok(extraFiles.has("schemas/gschemas.compiled"),
             "schemas/gschemas.compiled must be an EXTRA_FILE: the packer only ships the .xml, " +
@@ -247,10 +247,10 @@ describe("shipped code keeps the promises its comments make", () => {
         // here. It is the single place a name may appear, hence the self-exemption.
         const NAMES = ["codebuddy", "codenotify", "code-notify", "trae", "opencode"];
         const RECORDS = FILES.filter(f =>
-            f.endsWith(".md") || f.startsWith("tests/fixtures/") ||
+            f.endsWith(".md") || f.startsWith("test/fixtures/") ||
             /^tests\/[^/]+\.(mjs|js)$/.test(f));
         for (const f of RECORDS) {
-            if (f === "tests/repo.test.mjs")
+            if (f === "test/repo.test.mjs")
                 continue;
             const low = read(f).toLowerCase();
             for (const n of NAMES)
@@ -375,11 +375,11 @@ describe("dimension-A checkout and test-directory invariants", () => {
             "ci.yml checks out shallow — the CI section of dimensions/a.md requires `fetch-depth: 0`");
     });
 
-    it("keeps exactly one test directory", () => {
+    it("keeps the singular test/ directory", () => {
         const has = (d) => fs.existsSync(path.join(REPO, d));
-        assert.ok(has("test") || has("tests"),
-            "no test directory — dimension A runs its suite from `npm test`");
-        assert.ok(!(has("test") && has("tests")),
-            "both test/ and tests/ exist — keep one, or half the suite stops running");
+        assert.ok(has("test"),
+            "test/ is missing — dimension A plugins run their suite from the singular `test/`");
+        assert.ok(!has("tests"),
+            "a plural sibling of test/ exists — dimension A plugins keep one suite directory");
     });
 });

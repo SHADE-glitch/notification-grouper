@@ -1,4 +1,4 @@
-// tests/check-prefs-props.js — every widget property/signal prefs.js uses, introspected one by one
+// test/check-prefs-props.js — every widget property/signal prefs.js uses, introspected one by one
 // against this machine's libadwaita. No display needed: it only inspects classes, never instantiates
 // a widget.
 //
@@ -11,7 +11,7 @@
 //       prefs.js blows up only when the user opens the settings;
 //   (b) every member name in the list must still appear in the prefs.js source — otherwise the list is
 //       just a fossil and the check passes while guaranteeing nothing.
-// Usage: gjs tests/check-prefs-props.js      exit code 0 = all pass
+// Usage: gjs test/check-prefs-props.js      exit code 0 = all pass
 const Adw = imports.gi.Adw;
 const Gtk = imports.gi.Gtk;
 const GObject = imports.gi.GObject;

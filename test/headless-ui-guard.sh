@@ -1,5 +1,5 @@
 #!/bin/bash
-# usage: tests/headless-ui-guard.sh [<extension-dir>] [<label>]
+# usage: test/headless-ui-guard.sh [<extension-dir>] [<label>]
 #
 # Provocation harness for the GNOME 50 collapse defect worked around in
 # uiWorkarounds.js. It ASSERTS now (it used to only cat the JSON and grep counts, so the
@@ -18,8 +18,8 @@
 # directory explicitly still overrides it.
 #
 # Run it once with each value and the FLIP is machine-checked:
-#   EXPECT=native   tests/headless-ui-guard.sh
-#   EXPECT=guarded  tests/headless-ui-guard.sh
+#   EXPECT=native   test/headless-ui-guard.sh
+#   EXPECT=guarded  test/headless-ui-guard.sh
 #
 # Provokes the native messageList collapse fault on BOTH builds, so the guard is
 # shown to matter rather than merely to not crash. TWO provocations, one per half of

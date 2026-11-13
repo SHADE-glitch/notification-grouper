@@ -1,12 +1,12 @@
 #!/bin/bash
-# tests/headless-verify.sh — runtime verification of extension.js
+# test/headless-verify.sh — runtime verification of extension.js
 #
 # Why this file exists: `npm test` only covers groupEngine.js (pure functions).
 # The two wrappers, the enable/disable contract and the _shared cache can only
 # be executed by GJS inside a real shell. This script boots a throwaway headless
 # GNOME Shell on a private D-Bus session and drives the extension there.
 #
-#   usage: tests/headless-verify.sh [<extension-dir>]
+#   usage: test/headless-verify.sh [<extension-dir>]
 #   exit:  0 all assertions passed, 1 something failed
 #
 # It is isolated by construction and must stay that way:
