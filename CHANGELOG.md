@@ -873,3 +873,24 @@ Evidence  `python3 ~/.agents/scripts/render_standards.py --check .` reports the 
 Cost      `AGENTS.md` grows by about 10.5 KB, paid on every session read; the copy can drift, so the
           drift check is the only thing keeping it honest and it exists only on this machine.
 Commit    0c49614
+
+### D-043 · 2026-11-13 · chore
+
+Symptom   The plugin kept its suite in the plural `tests/` while the A-tier card requires the singular
+          `test/`. The layout guard only asserted that one test directory existed, so the drift had
+          no assertion behind it — a rule that says "singular" with a check that accepts either.
+Change    Renamed `tests/` to `test/` and updated every live reference: package scripts, CI, both
+          README and MAINTENANCE pages, `docs/README.md`, the harnesses' self-references and the
+          removal notes in `uiWorkarounds.js`. Tightened the layout assertion in all five A-tier
+          plugins to require `test/` and reject `tests/`. The generated standards-core block is
+          untouched — its `scripts/tests/` line describes the tool tier, not this repository's path —
+          so `standards.lock` is unchanged. Historical entries in this ledger and
+          `docs/audit/2026-10-26.md` still name `tests/`; they state what was true as of their own
+          commit and are deliberately not rewritten.
+Evidence  `npm test` 15/15, `npm run check:log` PASS, `npm run test:coverage` rc=0,
+          `render_standards.py --verify-lock .` rc=0, `node --check` rc=0; the other four plugins'
+          `npm test` all rc=0 with the tightened assertion.
+Cost      The rename touches a shipped-code comment in `uiWorkarounds.js`, which `check:log` watches,
+          so this commit is covered and must be cited — hence this entry. Outside links to the old
+          `tests/` paths break; none is known inside the governed set.
+Commit    c676c0a
