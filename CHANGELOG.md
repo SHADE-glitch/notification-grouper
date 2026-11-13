@@ -859,3 +859,4 @@ Evidence  `bash ~/.agents/scripts/audit.sh` exits 0 (every governed repository p
           this repository's own guard did not reference the file.
 Cost      No per-assistant config remains to drift, and no local guard can observe an agent that skips
           the pointer — the same blind spot the removed file had.
+Commit    0d71d12
