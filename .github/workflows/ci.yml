@@ -30,4 +30,5 @@ jobs:
       # Coverage reading (not a gate): Node's built-in coverage over the two
       # test/*.mjs suites. No threshold, so it cannot fail the run.
       - run: npm run test:coverage
+      - run: python3 scripts/check_language.py
       - run: python3 scripts/render_standards.py --verify-lock .
