@@ -309,28 +309,6 @@ describe("dimension-A layout invariants hold", () => {
     // CONVENTIONS.md, STANDARD.md and dimensions/a.md — a match means AGENTS.md
     // restated the standard's body instead of referencing it, which the layout
     // audit scores as a missing guard.
-    const STANDARD_HEADINGS = [
-        "Repositories governed by this standard",
-        "Root files (the finalized layer)",
-        "The three dimensions",
-        "The shared common core",
-        "Where each dimension's detail lives",
-        "Unify the common core; never flatten what is a repo's own",
-        "Where a repository points",
-        "Language policy",
-        "## 5. CI",
-        "Process-draft location",
-        "Test entry commands",
-        "CHANGELOG format",
-        "Runtime ignore list",
-        "Conflict rule",
-        "Remotes and pushing",
-        "Audit ruleset (anchor)",
-        "Profile listing (cross-dimension)",
-        "Retiring a repository (cross-dimension)",
-        "About (the GitHub front door)",
-        "Citation stability (append-only)",
-    ];
 
     it("the finalized root-file layer is present and in the right place", () => {
         const missingFiles = ROOT_FILES.filter((rel) => !fs.existsSync(path.join(REPO, rel)));
@@ -353,15 +331,20 @@ describe("dimension-A layout invariants hold", () => {
             "AGENTS.zh-CN.md is the bilingual application shape, not this one — AGENTS.md is English-only here because every AGENTS.md outside the language whitelist is English");
     });
 
-    it("AGENTS.md names its dimension in one line instead of restating the standard", () => {
+    it("AGENTS.md carries the generated shared-rules block", () => {
         const agents = read("AGENTS.md");
         assert.match(agents, /^\s*>\s*\*\*Dimension\.\*\*/m,
-            "AGENTS.md opens with no one-line dimension pointer. Add a blockquote line naming this repository as dimension A of the machine-wide CONVENTIONS.md, immediately above the existing shared-standard blockquote — name it, do not paste the rules");
+            "AGENTS.md opens with no dimension pointer. Add a blockquote line naming this repository as dimension A of the machine-wide CONVENTIONS.md; the rules themselves are carried in the generated block below it");
         assert.match(agents, /CONVENTIONS\.md/,
             "the dimension pointer must name CONVENTIONS.md (outside this repository), which is where the dimension and its requirements are defined");
-        for (const heading of STANDARD_HEADINGS) {
-            assert.ok(!agents.includes(heading),
-                `AGENTS.md restates the shared standard: "${heading}" is a section heading of CONVENTIONS.md or STANDARD.md. Keep the rule in the standard and leave a pointer here, so the two copies cannot drift`);
+        assert.ok(agents.includes("<!-- BEGIN standards-core"),
+            "AGENTS.md carries no standards-core block. A pointer alone does not reach a session that cannot read ~/.agents — render it: python3 ~/.agents/scripts/render_standards.py --write .");
+        assert.ok(agents.includes("<!-- END standards-core"),
+            "the standards-core block is not closed — the END marker is missing");
+        const block = agents.slice(agents.indexOf("<!-- BEGIN standards-core"), agents.indexOf("<!-- END standards-core"));
+        for (const source of ["STANDARD.md", "dimensions/a.md"]) {
+            assert.ok(block.includes(source),
+                `the standards-core block does not name ${source} as a source`);
         }
     });
 
