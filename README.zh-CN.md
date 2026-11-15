@@ -14,11 +14,11 @@
 
 <p align="center"><img src="docs/screenshots/comparison.png" alt="开启扩展前后的通知列表：九张卡片对三张" width="900"></p>
 
-<p align="center"><em><b>开启前后</b> —— 三个工具发来的九张通知卡片，收成每应用一张。</em></p>
+<p align="center"><em><b>开启前后</b> —— 三个发送方发来的九张通知卡片收成三个堆叠、每个应用一个：按发送方声明的身份分组。</em></p>
 
-<p align="center"><img src="docs/screenshots/demo.gif" alt="三个应用的通知各自合并成一张卡片" width="900"></p>
+<p align="center"><img src="docs/screenshots/demo.gif" alt="几个发送方的通知各自合并成一张卡片" width="900"></p>
 
-<p align="center"><em><b>动图内容：</b>三个应用各发三条通知，扩展把每个应用的三张卡片折叠成一张。<b>展示的功能：</b>按发送方声明的身份分组——每个应用一个堆叠，最新的卡片在最前面，早先的收在后面。</em></p>
+<p align="center"><em><b>动图内容：</b>几个合成发送方陆续发来通知；展开通知列表，看到它们的卡片按发送方折叠成各自的堆叠，再收起列表。<b>展示的功能：</b>每个应用一个堆叠，而不是短命工具堆出一整墙标题相同、每栈一张卡的栈头，最新的卡片排在最前。</em></p>
 
 **怎么跑** — 克隆到 `~/.local/share/gnome-shell/extensions/notification-grouper@local`，运行 `gnome-extensions enable notification-grouper@local`，再注销重登。
 

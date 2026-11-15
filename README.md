@@ -15,11 +15,11 @@ application into a single stack, instead of one stack header per process.
 
 <p align="center"><img src="docs/screenshots/comparison.png" alt="The notification list without and with the extension: nine cards against three" width="900"></p>
 
-<p align="center"><em><b>Before and after</b> — nine notification cards from three tools become three, one per sending application.</em></p>
+<p align="center"><em><b>Before and after</b> — nine notification cards from three senders become three stacks, one per sending application: grouping by the identity the sender declares.</em></p>
 
-<p align="center"><img src="docs/screenshots/demo.gif" alt="Notifications from three applications folding into one card each" width="900"></p>
+<p align="center"><img src="docs/screenshots/demo.gif" alt="Notifications from several senders folding into one stack each" width="900"></p>
 
-<p align="center"><em><b>In the clip:</b> three applications each post three notifications, and the extension folds each application's three cards into one. <b>What it shows:</b> grouping by the identity the sender declares — one stack per application, newest card first, the earlier ones behind it.</em></p>
+<p align="center"><em><b>In the clip:</b> notifications arrive from a few synthetic senders; the notification list is opened to show their cards folded into one stack per sender, then closed again. <b>What it shows:</b> one stack per application instead of a wall of identically titled one-card headers from short-lived tools, with the newest card in front.</em></p>
 
 **How to run** — Clone into `~/.local/share/gnome-shell/extensions/notification-grouper@local`, run `gnome-extensions enable notification-grouper@local`, then log out and back in.
 
