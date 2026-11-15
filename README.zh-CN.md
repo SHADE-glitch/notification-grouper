@@ -12,13 +12,9 @@
 
 **解决什么** — 让每次发送都拿到新 pid 的命令行/开发工具不再堆出一整墙标题相同、每栈只有一张卡的栈头。
 
-<p align="center"><img src="docs/screenshots/comparison.png" alt="开启扩展前后的通知列表：九张卡片对三张" width="900"></p>
+<p align="center"><img src="docs/screenshots/demo.gif" alt="Files、Firefox、Thunderbird 的通知依次到达，顶栏始终只有一个成组指示点" width="800"></p>
 
-<p align="center"><em><b>开启前后</b> —— 三个工具发来的九张通知卡片，收成每应用一张。</em></p>
-
-<p align="center"><img src="docs/screenshots/demo.gif" alt="三个应用的通知各自合并成一张卡片" width="900"></p>
-
-<p align="center"><em><b>动图内容：</b>三个应用各发三条通知，扩展把每个应用的三张卡片折叠成一张。<b>展示的功能：</b>按发送方声明的身份分组——每个应用一个堆叠，最新的卡片在最前面，早先的收在后面。</em></p>
+<p align="center"><em><b>动图内容：</b>Files、Firefox、Thunderbird 依次发出通知，顶栏始终只留一个成组指示点，而不是每个发送方一个栈头；指针随后把它指出来。<b>展示的功能：</b>按发送方声明的身份分组——同一个应用连发多条，仍是一个堆叠，而不是一墙只有一张卡的栈头。</em></p>
 
 **怎么跑** — 克隆到 `~/.local/share/gnome-shell/extensions/notification-grouper@local`，运行 `gnome-extensions enable notification-grouper@local`，再注销重登。
 

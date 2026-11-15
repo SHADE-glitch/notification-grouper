@@ -13,13 +13,9 @@ application into a single stack, instead of one stack header per process.
 
 **What it solves** — It stops a wall of identically titled one-card stack headers from command-line and dev tools that get a fresh pid on every send.
 
-<p align="center"><img src="docs/screenshots/comparison.png" alt="The notification list without and with the extension: nine cards against three" width="900"></p>
+<p align="center"><img src="docs/screenshots/demo.gif" alt="Notifications from Files, Firefox and Thunderbird arriving one after another while the top bar holds a single grouped indicator" width="800"></p>
 
-<p align="center"><em><b>Before and after</b> — nine notification cards from three tools become three, one per sending application.</em></p>
-
-<p align="center"><img src="docs/screenshots/demo.gif" alt="Notifications from three applications folding into one card each" width="900"></p>
-
-<p align="center"><em><b>In the clip:</b> three applications each post three notifications, and the extension folds each application's three cards into one. <b>What it shows:</b> grouping by the identity the sender declares — one stack per application, newest card first, the earlier ones behind it.</em></p>
+<p align="center"><em><b>In the clip:</b> Files, Firefox and Thunderbird post notifications one after another while the top bar holds a single grouped indicator instead of a fresh stack header per sender, and the pointer picks that indicator out. <b>What it shows:</b> grouping by the identity the sender declares, so a burst from one application stays one stack instead of a wall of one-card headers.</em></p>
 
 **How to run** — Clone into `~/.local/share/gnome-shell/extensions/notification-grouper@local`, run `gnome-extensions enable notification-grouper@local`, then log out and back in.
 
